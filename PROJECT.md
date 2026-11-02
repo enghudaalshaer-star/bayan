@@ -1,0 +1,95 @@
+# بيان — ملف المشروع (ارفعه مع أي طلب تعديل)
+
+أكاديمية تعليمية شرعية (برنامج أكاديمي لسنتين + برنامج إجازات، حسب وثيقة «مشروع أكاديمية مع وزارة الأوقاف»): موقع عام + منطقة طالب + اختبارات + شهادات + لوحة تحكم منفصلة.
+واجهة عربية RTL بالكامل. JavaScript عادي بلا أدوات بناء (no build). تُرفع على Netlify كمجلد ثابت.
+البيانات: Firebase (Auth + Firestore) عند تعبئة `js/config.js`، وإلا وضع تجريبي في localStorage.
+
+> **طريقة التعديل الموفّرة:** أرسل هذا الملف + الملف الذي يخصّه التعديل فقط (حسب الجدول أدناه)، وليس المشروع كله.
+
+## الملفات
+
+| الملف | المسؤولية | متى أرسله |
+|---|---|---|
+| `index.html` | غلاف الموقع العام (يحمّل config → core → site) | نادراً |
+| `admin.html` | غلاف لوحة التحكم (يحمّل config → core → admin)، noindex | نادراً |
+| `css/style.css` | كل الأنماط المشتركة والتوكنز في `:root` | أي تعديل شكل/ألوان/خطوط |
+| `js/config.js` | `FIREBASE_CONFIG` و `EMAIL_DOMAIN` | الربط بـ Firebase |
+| `js/core.js` | الأدوات، الأيقونات، الثوابت، البيانات، المصادقة، النوافذ، التوجيه، التشغيل | تعديل منطق مشترك أو بيانات تجريبية |
+| `js/site.js` | الصفحة الرئيسية، الدورات، الدرس، الاختبار، الشهادة، دخول/تسجيل الطالب، حسابي | أي شيء يراه الطالب أو الزائر |
+| `js/admin.js` | لوحة التحكم ودخول المشرف | أي شيء في الإدارة |
+| `firestore.rules` | قواعد أمان Firestore (نسخة منها في `RULES` داخل admin.js) | تغيير الصلاحيات — حدّث الاثنين |
+
+## الروابط
+- الموقع: `index.html#/` · `#/courses` · `#/course/:id` · `#/learn/:courseId/:lessonId` · `#/exam/:courseId` · `#/cert/:code[/ar|/en]` · `#/verify` · `#/programs` (البرامج والخطة الدراسية، و`#/programs#p1|#p2`) · `#/ijaza/:key` (صفحة تعريف مادة في برنامج الإجازات: quran | hadith | معرّف الدورة) · `#/courses?p=academy|ijaza` · `#/about` · `#/contact` · `#/terms` · `#/login` · `#/register` · `#/me`
+- الإدارة: `admin.html#/login` · `#/` (المؤشرات) · `#/courses` · `#/course/:id` (محرر بتبويبات: بيانات/دروس/اختبار) · `#/students` · `#/results` · `#/certs` (الصادرة) · `#/certs/types` (أنواع الشهادات) · `#/certs/courses` (شهادة كل دورة) · `#/certs/settings` · `#/certtype/:id` (محرر النوع) · `#/messages` · `#/settings`
+- مسارات الطالب محمية بالحارس `'student'`، وكل مسارات الإدارة بـ `'admin'` عدا `/login`.
+
+## البنية الداخلية (core.js)
+- كل تطبيق يعرّف في آخر ملفه: `APP = { layout(v), routes: [[regex, viewFn, guard?]], guard(g, path) → true إذا حوّل, afterLogout() }` ثم `boot()`.
+- كل صفحة دالة `async` ترجع: `{ html, mount?, docTitle?, layout?('bare'|'admin'), over?(هيدر شفاف فوق بطل داكن), active?, title?, actions? }`. إرجاع `null` = تم التحويل.
+- `paint(v)` ينفّذ cleanups، يغلق النوافذ، يرسم، ثم `mount()` ثم `enhance()` (ظهور تدريجي `.reveal`، عدّادات `data-count`، أشرطة `data-w`، ميلان `.tilt`).
+- `S` = الحالة العامة: `user {uid,name,username,isAdmin}`, `settings`, `cleanups[]`, `live` (Firebase؟), `scope` ('site'|'admin').
+- البيانات عبر `DB.get/list(c, {field:value})/set/update/del` — نفس الواجهة لـ `Local` و `Remote`. `safeGet/safeList` لا ترمي أخطاء.
+- المصادقة عبر `Auth`: `init()`, `login()` (طالب), `adminLogin()`, `createUser(data, selfLogin)`, `resetPassword()` (تجريبي فقط), `logout()`, `canReset`.
+- جلسات الوضع التجريبي منفصلة: `bayan_session` للطالب، `bayan_admin_session` للمشرف.
+- أدوات: `$ $$ esc genId fmtDate fmtDT safeUrl trim go ic(name,size) logoMark toast(msg,'ok'|'err') modal(title, bodyHtml, {onSubmit(fd,form), onOpen, wide, noFoot, submitText}) confirmBox(msg) downloadFile toCSV themeStyle`.
+- الأيقونات في الكائن `I` (مسارات SVG بعرض 24). الثوابت: `THEMES` (ألوان أغلفة الدورات)، `COURSE_ICONS`، `LEVELS`، `CATS`، `TYPE_LBL`، `TYPE_IC`، `DEFAULT_EXAM()`، `DEFAULTS` (إعدادات المنصة).
+- الوسائط والشهادة في core (تستعملها الإدارة للمعاينة): `normUrl` (=`safeUrl`)، `mediaInfo(url,type)`، `mediaEmbed(l)`، `CERT_TPLS`، `CERT_LANGS`، `certLangList(type)`، `certHtml(ct, lang, {tpl, qr, c, type})`، `certImageHtml` (التصميم المستورد)، `CERT_FIELDS` (حقوله ومواضعها الافتراضية)، `CERT_FONTS`، `certLayout()`، `loadCertType(id)` (يجلب النوع مع صوره ويخزّنها مؤقتاً حسب `v`)، `resolveCertType(ct, c)`، `CERT_SAMPLE()`، `REVEAL_OPTS`.
+- البيانات التجريبية: `demoCourses()` (3 دورات)، وطالب `demo / 123456` يُنشأ مرة واحدة في الوضع التجريبي.
+
+## نموذج البيانات (مجموعات Firestore / مفاتيح localStorage `bayan_db_v1`)
+- `settings/main`: accredit, acadIntro, acadAdmission, ijazaIntro (سطر لكل نقطة), ijazaAdmission — نصوص الأكاديمية؛ name, nameEn (للشهادة), tagline, heroText, about, contact (قديم، يظهر فقط إن لم يُعبّأ email/whatsapp), aboutLong, email, whatsapp (أرقام فقط), social {facebook,youtube,telegram,instagram,xsoc}, terms, allowMessages, allowRegister, certTemplate (قديم: يُستعمل فقط إن لم توجد أنواع), certLangs(both|ar|en — الافتراضية), certDefault (معرّف نوع الشهادة الافتراضي), adminUser, adminHash (الأخيران للتجريبي فقط)
+- `courses/{id}`: title, titleEn (للشهادة), summary, description, category, level, instructor, instructorEn, theme, icon, published, createdAt, updatedAt,
+  program ('academy' | 'ijaza' | '' عامة), term (1..4 للأكاديمي: السنة = ceil(term/2)), ijazaKey (quran|hadith لمواد الإجازات), order (رقم المادة في الفصل), book, author, hours (ساعات أسبوعية، '' = غير محدد),
+  certType (معرّف نوع الشهادة، فارغ = الافتراضي), enrollMode(open|window|closed، الافتراضي open), enrollStart, enrollEnd (ms، 0 = غير محدد)، enrollNote، startsAt (بداية الدراسة)، durationLabel، online (دورة أونلاين بلقاءات مباشرة)، livePlatform (zoom|meet|teams|other، يُحسب من الرابط)، liveSchedule (نص المواعيد للزوّار)،
+  `lessons[]: {id, title, type(video|audio|pdf|text), url, content, duration}`,
+  `exam: {questions[]: {id, text, type(mcq|tf), options[], answer(index)}, passScore, duration(دقائق، 0=مفتوح), maxAttempts(0=غير محدود), shuffle, reveal('none' درجة فقط | 'mark' صح/خطأ دون كشف الصحيحة | 'full' كشف كامل | 'hidden' رسالة «تم حفظ الاختبار بنجاح» فقط — `revealMode()` في core تحوّل القيم القديمة true/false), autoCert (في وضع hidden: إصدار الشهادة تلقائياً بلا درجة), requireLessons}`
+- `courseLive/{courseId}`: url (رابط الاجتماع الثابت), meetingId, passcode, note (تعليمات للطلاب), updatedAt, `sessions[]: {id, title, at (ms), dur (دقائق), url? (رابط خاص باللقاء), rec? (رابط التسجيل)}` — منفصل عن الدورة لأن الدورات قراءتها عامة؛ يقرؤه المشرف والطالب المسجّل فقط (`exists(enrollments/{uid}_{cid})`)، ويكتبه المشرف
+- `users/{uid}`: name, nameEn, username, phone, createdAt, disabled, passHash (تجريبي فقط)
+- `enrollments/{uid}_{courseId}`: uid, courseId, userName, courseTitle, completed[lessonIds], enrolledAt, lastLesson, lastAt
+- `attempts/{id}`: uid, userName, courseId, courseTitle, score, correct, total, passed, at, answers
+- `certificates/{BYN-XXXX-XXXX}`: uid, courseId, name, nameEn, courseTitle, courseTitleEn, instructor, instructorEn, certType (نوع الدورة وقت الإصدار، احتياطي), score, issuedAt — قراءة عامة للتحقق؛ ينشئها صاحبها أو المشرف؛ صاحبها يعدّل nameEn فقط
+- `certTypes/{id}`: name, langs(''=حسب الإعداد العام|both|ar|en), design(tpl|image), tpl, titleAr, titleEn, lineAr, lineEn (نصوص القالب الجاهز، فارغ = الافتراضي), o(landscape|portrait), hasEn, layout {name|course|score|date|hijri|instructor|brand|qr|code: {x,y (%), size (cqw), w (أقصى عرض %), font, color, bold, show}}, v (نسخة التصميم لكسر التخزين المؤقت), createdAt, updatedAt — قراءة عامة، كتابة للمشرف
+- `certAssets/{typeId}_ar|_en`: data (صورة JPEG بصيغة dataURL بمقاس A4، أقل من 880 ألف حرف لحدود Firestore), o, at — منفصلة عن النوع لأن الصور كبيرة. قراءة عامة، كتابة للمشرف
+- `messages/{id}`: name, reply (جوال أو بريد), topic, body, at, uid ('' للزائر), status(new|read|done) — ينشئها أي زائر بقيود طول في القواعد، ويقرؤها المشرف فقط
+- `admins/{uid}`: وجود المستند = صلاحية مشرف (يُنشأ يدوياً من لوحة Firebase)
+
+## القواعد السلوكية
+- الأكاديمية (core: `PROGRAMS`, `programName`, `TERM_NAMES`, `YEAR_NAMES`, `termLabel`, `ACADEMY_PLAN` (20 مادة: فصل، مادة، اسم إنجليزي، كتاب، مؤلف، ساعات، تصنيف، أيقونة)، `IJAZA_PLAN` (كائنات: key, title, book, description, items[])، `academyCourses()`، `planSort`): صفحة `#/programs` (`viewPrograms` في site.js) تبني جدول كل فصل من الدورات ذات `program: 'academy'` (المنشورة رابط، والمسودة نص)، وإن لم توجد أي مادة تعرض `ACADEMY_PLAN` المضمّنة. الرئيسية فيها بطاقتا البرنامجين (`programsTeaser`). مواد برنامج الإجازات (`ijazaRows` في site.js) بطاقات تفتح الدورة إن كانت منشورة، وإلا صفحة تعريف المادة `viewIjaza`. صفحة الدورات فيها فلتر البرنامج ثم الفصل. صفحة المادة تعرض الكتاب المقرّر والمؤلف والساعات. في الإدارة: زر «استيراد الخطة الدراسية» في قسم الدورات ينشئ المواد الناقصة (حسب العنوان) كمسودات، وفي محرر الدورة قسم «البرنامج الدراسي»، وفي الإعدادات «الأكاديمية والبرامج».
+- `richText` يدعم: `## ` عنوان، `- ` قائمة، `1. ` قائمة مرقّمة، و`{name}` يُستبدل باسم المنصة.
+- التسجيل والمواعيد: `enrollState(c)` في core تعيد `{open, state: always|open|soon|ended|closed, opensAt, closesAt, note}`. صفحة الدورة تعرض بدل زر التسجيل «بوابة» (`enrollGate` في site.js) مع عدّاد تنازلي (`countdownHtml` + `runCountdowns`) يعيد رسم الصفحة عند الوصول للصفر. بطاقة الدورة تعرض شارة `.cstate`. قبل `startsAt` تُعرض للطالب المسجّل صفحة انتظار (`notStartedView`) بدل الدروس والاختبار. القاعدة `enrollOpen()` في Firestore تمنع التسجيل الذاتي خارج الفترة (المشرف مستثنى عند التسجيل اليدوي).
+- اللقاءات المباشرة: تبويب «اللقاءات المباشرة» في محرر الدورة (رابط Zoom/Meet/Teams مع تعرّف تلقائي على المنصة ورقم الاجتماع عبر `meetInfo` في core، رمز الدخول، نص المواعيد، تعليمات، وجدول لقاءات: لقاء مفرد أو «جدولة متكررة» أسبوعية بأيام مختارة، ورابط خاص أو رابط تسجيل لكل لقاء). `liveState(lv)` تعيد `{ss, live, next, upcoming, past}`، واللقاء «جارٍ» من قبل موعده بـ `LIVE_EARLY` (ربع ساعة) حتى نهايته. في الموقع: لوحة `livePanel` في صفحة الدورة للمسجّل (حالة اللقاء، عدّ تنازلي، نسخ الرقم والرمز، «انضم الآن»، ملف تقويم `.ics` بتنبيه قبل 15 دقيقة، جدول مع روابط التسجيلات)، وزر «انضم الآن» في البطل، و`liveMini` في الشريط الجانبي للدرس، وقسم «لقاءاتي المباشرة» في `#/me`، وشارة «مباشر» على البطاقة. `mountLive` يعيد رسم الصفحة تلقائياً حين يبدأ لقاء أو ينتهي. الزائر يرى أنها مباشرة ونص المواعيد فقط. دورة أونلاين بلا دروس: زر الطالب يذهب إلى اللقاءات بدل «ابدأ الدورة».
+- التواصل: صفحة `#/contact` بنموذج يحفظ في `messages` (حقل فخ `website` + مهلة دقيقة بين الرسائل عبر `bayan_msg_at`) وقنوات مباشرة (واتساب `waLink`، بريد، `SOCIALS`). قسم «الرسائل» في الإدارة بفلاتر (جديدة/بانتظار الرد/الكل)، ورد مباشر بالبريد أو واتساب، وشارة عدد الجديد في الشريط الجانبي (`S.unread` يُحدَّث في `wrapA`). نصوص «عن المنصة» و«الشروط» تُكتب في الإعدادات بتنسيق بسيط (`richText`: فقرات بسطر فارغ، و`## ` عنوان).
+- الشهادة تصدر عند النجاح في الاختبار، أو عند إتمام الدروس إذا لم يكن للدورة أسئلة (`issueCert` في site.js، لا تكرار لنفس الطالب والدورة).
+- أنواع الشهادات (قسم «الشهادات» في الإدارة، وانتقلت إليه إعدادات الشهادة من «الإعدادات»): كل نوع إما قالب جاهز (4 قوالب مع عنوان وعبارة قابلة للتعديل) أو تصميم مستورد PNG/JPG/WEBP/SVG/PDF (أول صفحة عبر pdf.js من cdnjs). الاستيراد (`prepTemplate` في admin.js) يحوّل الملف إلى JPEG بمقاس A4 (أفقي أو عمودي حسب الصورة)، ويضيف هوامش بيضاء إن لم يطابق المقاس، ويضغطه ليناسب Firestore. للتصميم المستورد محرر يُسحب فيه كل حقل بالفأرة/اللمس أو الأسهم، مع حجم وخط ولون وعرض وإظهار/إخفاء، وتصميم إنجليزي اختياري بنفس المواضع. الصيغة الموصى بها: A4 أفقي 3508×2480 بكسل.
+- كل دورة تختار نوع شهادتها (`certType`) من محرر الدورة أو من «شهادة كل دورة»، وإلا `settings.certDefault`. أول فتح لقسم الشهادات ينشئ «شهادة إتمام» من القالب القديم ويجعله افتراضياً (`ensureCertTypes`). الشهادة تُرسم دائماً بنوع دورتها الحالي (`resolveCertType`)، فتغيير النوع يُطبَّق على الصادرة سابقاً أيضاً.
+- الشهادة: كل لغة شهادة كاملة مستقلة (`certHtml` في core)، والطالب يبدّل بينهما بتبويبات؛ اللغات من النوع أو من الإعداد العام. التاريخ الهجري يظهر في العربية. QR للتحقق. «تحميل PDF» للحالية و«تحميل الشهادتين» صفحتين عبر `certPDF(htmls, file)` في site.js (html2canvas + jsPDF من cdnjs عبر `need()`)، A4 أفقي أو عمودي حسب الصنف `o-portrait`. القوالب أصناف `t-*` على `.cert` ومقاساتها بوحدة `cqw` داخل `.cert-wrap`. إذا لم يكن للطالب اسم إنجليزي يظهر له حقل لإضافته.
+- وضع الاختبار `hidden`: لا درجة ولا تفاصيل للطالب، والشهادة إما تلقائية (`autoCert`) أو يُصدرها المشرف من «نتائج الاختبارات» (زر «إصدار شهادة»)، وفي الحالتين بلا درجة.
+- الوسائط: `mediaInfo()` يتعرّف على YouTube (watch/youtu.be/shorts/live/embed/قوائم/وقت البدء) وVimeo وSoundCloud وGoogle Drive (ملفات ومجلدات) ومستندات Google وArchive.org وDropbox وروابط mp3/mp4/pdf المباشرة، ويقبل كود `<iframe>` والروابط بلا https. تحت كل مشغّل رابط «افتحها في المصدر». محرر الدرس يعرض معاينة فورية. يوتيوب لا يعمل عند فتح الملفات من `file://`، فقط بعد الرفع.
+- في Firebase: اسم المستخدم يتحول داخلياً إلى `username@EMAIL_DOMAIN`. المشرف يضيف الطلاب عبر تطبيق Firebase ثانوي (`secondary`) حتى لا يخرج من حسابه. تغيير كلمات مرور الطلاب يتم من لوحة Firebase.
+- التصحيح يتم في المتصفح، فالإجابات موجودة في بيانات الدورة؛ مناسب للتعليم لا للاختبارات الرسمية الحساسة.
+
+## الهوية البصرية (css/style.css → :root)
+- ألوان: `--deep #0B3D3A` (خلفيات داكنة/الشريط الجانبي) · `--teal #1E6F6A` (الأساسي — التركواز التحوّلي، لون 2026) · `--bg #EFEDE6` (Cloud Dancer) · `--brass #B88E45` (النحاسي) · `--ink #102321` · `--mist #D5E0DC`. وضع ليلي عبر `data-theme` و prefers-color-scheme.
+- خطوط Google: Reem Kufi (عناوين) · IBM Plex Sans Arabic (نصوص) · Amiri (متون وآيات `.matn`) · Aref Ruqaa (الشهادة العربية) · Cormorant Garamond (الشهادة الإنجليزية).
+- العنصر المميز: نجمة ثمانية `girihArt()` ترسم نفسها وتدور في بطل الصفحة، مع ذرات ذهبية `particles()`، وحافة أقواس `.arches` أسفل البطل، ثم بطاقة حديث ثابتة `.saying`.
+- يحترم `prefers-reduced-motion`. الطباعة مهيأة للشهادة A4 أفقي.
+
+## التشغيل والنشر
+1. تجريبي: افتح `index.html` مباشرة. الإدارة: `admin.html` بـ `admin / admin123` (غيّرها من الإعدادات).
+2. Firebase: فعّل Email/Password، أنشئ Firestore والصق `firestore.rules`، ضع الإعدادات في `js/config.js`، أنشئ مستخدم المشرف ثم مستند `admins/{UID}`، وأضف دومين Netlify في Authorized domains.
+3. Netlify: اسحب المجلد كاملاً إلى app.netlify.com/drop (أو حدّث الموقع الموجود بنفس الطريقة).
+
+## سجل التغييرات
+- 2026-10-04: الإصدار الأول (ملف واحد).
+- 2026-10-04: فصل لوحة التحكم إلى `admin.html` بجلسة دخول مستقلة، وتقسيم الكود إلى css/ و js/ (config, core, site, admin)، وإضافة هذا الملف.
+- 2026-10-14: إزالة الشريط المتحرك واستبداله بحافة أقواس وبطاقة حديث؛ خيار «ماذا يرى الطالب بعد التسليم» في الاختبار (none/mark/full)؛ شهادة جديدة ثنائية اللغة مع QR وتحميل PDF؛ حقول الأسماء الإنجليزية (طالب، دورة، منصة)؛ تحديث قواعد الشهادات.
+- 2026-10-14 (2): شهادتان منفصلتان عربية وإنجليزية؛ 4 قوالب شهادة تُختار من الإعدادات مع معاينة؛ اسم المحاضر بالإنجليزية؛ وضع اختبار «حفظ فقط» مع إصدار الشهادة يدوياً أو تلقائياً؛ إصلاح روابط يوتيوب والدرايف ودعم مصادر جديدة ومعاينة الرابط؛ المشرف يستطيع إنشاء الشهادات (حُدّثت القواعد).
+- 2026-10-14 (3): مواعيد التسجيل للدورات (مفتوح دائماً / فترة محددة / مغلق) مع عدّاد تنازلي، وبداية دراسة تقفل الدروس قبلها، ومدة الدورة؛ عمود «التسجيل» في جدول الدورات. صفحات «عن المنصة» و«تواصل معنا» و«الشروط والخصوصية»، ونموذج رسائل يصل إلى قسم «الرسائل» الجديد في الإدارة، وروابط واتساب والبريد والتواصل الاجتماعي، وتذييل جديد من ثلاثة أعمدة. قواعد Firestore: تقييد إنشاء التسجيلات بفترة التسجيل، ومجموعة `messages`.
+- 2026-10-14 (4): قسم «الشهادات» صار بتبويبات (الصادرة مع بحث وفلتر / أنواع الشهادات / شهادة كل دورة / الإعدادات) ونُقلت إليه إعدادات الشهادة. أنواع شهادات (إضافة، تعديل، نسخ، حذف، تعيين افتراضي) بقالب جاهز أو تصميم مستورد PNG/JPG/PDF مع محرر سحب وإفلات للمواضع، ودعم A4 العمودي في العرض والطباعة وPDF. لكل دورة نوع شهادة. مجموعتان جديدتان `certTypes` و`certAssets` في القواعد والنسخة الاحتياطية، وملف `firestore.rules` محدَّث.
+- 2026-10-18: الدورات الأونلاين — تبويب «اللقاءات المباشرة» في محرر الدورة (روابط Zoom / Google Meet / Microsoft Teams، رقم الاجتماع ورمز الدخول، جدولة لقاءات مفردة أو متكررة، روابط التسجيلات)، ولوحة لقاءات للطالب المسجّل مع «انضم الآن» وعدّ تنازلي وملف تقويم، وقسم «لقاءاتي المباشرة» في حسابي. مجموعة جديدة `courseLive` محمية للمسجّلين فقط في القواعد والنسخة الاحتياطية، وحذف الدورة يحذف لقاءاتها.
+- 2026-11-02: تحويل المنصة إلى أكاديمية حسب وثيقة وزارة الأوقاف: صفحة «البرامج الدراسية» (البرنامج الأكاديمي: سنتان، 20 مادة، 4 فصول، مع الكتب والمؤلفين والساعات وشرط القبول؛ وبرنامج الإجازات وشرطه)، وصفحة «النظام الداخلي» (9 مواد)، ونص «عن الأكاديمية» (التعريف والرؤية والرسالة والأهداف والهيئة التأسيسية). حقول جديدة للدورة (program/term/order/book/author/hours) وقسم لها في المحرر، وزر استيراد الخطة الدراسية، وفلاتر البرنامج والفصل، وقسم «الأكاديمية والبرامج» في الإعدادات. قوائم في `richText`. لا تغيير في قواعد Firestore.
+- 2026-11-02 (2): حذف «النظام الداخلي» (الصفحة والرابط والحقل في الإعدادات). مواد برنامج الإجازات (القرآن الكريم، الحديث النبوي وعلومه) صارت بطاقات قابلة للضغط في الرئيسية وصفحة البرامج، تفتح صفحة تشرح ما تتضمنه المادة مع شرط القبول.
+- 2026-11-02 (3): دمج نسختين متوازيتين في مشروع واحد: نسخة «الأكاديمية والبرامج» (02/11) ونسخة «اللقاءات المباشرة» (18/10). بطاقة الدورة وصفحتها وجدول الدورات في الإدارة تعرض الاثنين معاً (الفصل والكتاب والساعات + شارة «مباشر» واللقاءات). قواعد Firestore هي نسخة 18/10 (فيها `courseLive`).
+- 2026-11-02 (4): ربط المشروع بمشروع Firebase `bayan-4e7fb` في `js/config.js`.
+- 2026-11-02 (5): المستودع على GitHub: `enghudaalshaer-star/bayan` (فرع main)، و`netlify.toml` للنشر التلقائي من GitHub بلا بناء.

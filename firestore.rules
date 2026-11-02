@@ -1,0 +1,58 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function isAdmin() { return signedIn() && exists(/databases/$(db)/documents/admins/$(request.auth.uid)); }
+    function own(d) { return signedIn() && d.uid == request.auth.uid; }
+
+    match /settings/{id}     { allow read: if true; allow write: if isAdmin(); }
+    match /courses/{id}      { allow read: if true; allow write: if isAdmin(); }
+    match /certificates/{id} {
+      allow read: if true; allow create: if isAdmin() || own(request.resource.data); allow delete: if isAdmin();
+      allow update: if isAdmin() || (own(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nameEn']));
+    }
+    // أنواع الشهادات وتصاميمها المرفوعة: يقرؤها الجميع لعرض الشهادة، ويعدّلها المشرف
+    match /certTypes/{id}    { allow read: if true; allow write: if isAdmin(); }
+    match /certAssets/{id}   { allow read: if true; allow write: if isAdmin(); }
+    // روابط اللقاءات المباشرة (Zoom / Meet / Teams): يقرؤها المشرف والطالب المسجّل في الدورة فقط
+    match /courseLive/{cid}  {
+      allow read: if isAdmin() || (signedIn() && exists(/databases/$(db)/documents/enrollments/$(request.auth.uid + '_' + cid)));
+      allow write: if isAdmin();
+    }
+    match /admins/{uid}      { allow read: if signedIn() && request.auth.uid == uid; allow write: if false; }
+    match /users/{uid} {
+      allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
+      allow create: if isAdmin() || (signedIn() && request.auth.uid == uid && request.resource.data.disabled == false);
+      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['disabled','username']));
+      allow delete: if isAdmin();
+    }
+    // التسجيل الذاتي مسموح فقط حين يكون تسجيل الدورة مفتوحاً (enrollMode / enrollStart / enrollEnd)
+    function enrollOpen(cid) {
+      let c = get(/databases/$(db)/documents/courses/$(cid)).data;
+      let m = c.get('enrollMode', 'open');
+      let t = request.time.toMillis();
+      return m == 'open' || (m == 'window' && t >= c.get('enrollStart', 0) && (c.get('enrollEnd', 0) == 0 || t <= c.get('enrollEnd', 0)));
+    }
+    match /enrollments/{id} {
+      allow read: if isAdmin() || resource == null || own(resource.data);
+      allow create: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.courseId && enrollOpen(request.resource.data.courseId));
+      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data) && request.resource.data.courseId == resource.data.courseId);
+      allow delete: if isAdmin();
+    }
+    // رسائل «تواصل معنا»: يرسلها أي زائر، ويقرؤها المشرف فقط
+    match /messages/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['name','reply','topic','body','at','uid','status'])
+        && request.resource.data.name is string && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 80
+        && request.resource.data.reply is string && request.resource.data.reply.size() >= 5 && request.resource.data.reply.size() <= 120
+        && request.resource.data.body is string && request.resource.data.body.size() >= 5 && request.resource.data.body.size() <= 3000
+        && request.resource.data.status == 'new'
+        && (request.resource.data.uid == '' || (signedIn() && request.resource.data.uid == request.auth.uid));
+      allow read, update, delete: if isAdmin();
+    }
+    match /attempts/{id} {
+      allow read: if isAdmin() || own(resource.data);
+      allow create: if own(request.resource.data);
+      allow update, delete: if isAdmin();
+    }
+  }
+}
