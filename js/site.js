@@ -24,7 +24,7 @@ const starMark = (cls = '') => `<svg class="${cls}" viewBox="0 0 40 40" fill="no
 function courseCard(c, prog) {
   const n = (c.lessons || []).length, hasExam = c.exam?.questions?.length, es = enrollState(c);
   return `<a class="ccard tilt reveal" href="#/course/${c.id}">
-    <div class="ccover" style="${themeStyle(c)}"><div class="pat"></div>${ic(c.icon || 'book', 44)}<span class="ccat">${esc(c.category || 'عام')}</span>${prog == null && es.state !== 'always' ? `<span class="cstate s-${es.state}">${esc(enrollLabel(es))}</span>` : ''}</div>
+    <div class="ccover" style="${themeStyle(c)}"><div class="pat"></div>${ic(c.icon || 'book', 44)}<span class="ccat">${esc(c.category || 'عام')}</span>${prog == null && !isAdmProg(c.program) && es.state !== 'always' ? `<span class="cstate s-${es.state}">${esc(enrollLabel(es))}</span>` : ''}</div>
     <div class="cbody">${c.program === 'academy' && termLabel(c.term) ? `<small class="cterm">${esc(termLabel(c.term))}</small>` : c.program === 'ijaza' ? `<small class="cterm">${esc(programName('ijaza'))}</small>` : ''}<h3>${esc(c.title)}</h3>${c.book ? `<p class="cbook">${ic('book', 14)} ${esc(c.book)}${c.author ? ` — ${esc(c.author)}` : ''}</p>` : `<p>${esc(trim(c.summary, 100))}</p>`}
       <div class="cmeta">${c.online ? `<span class="c-live">${ic('video', 15)} مباشر</span>` : ''}${n || !c.online ? `<span>${ic('play', 15)} ${n} ${n === 1 ? 'درس' : 'دروس'}</span>` : ''}${hasExam ? `<span>${ic('quiz', 15)} اختبار</span>` : ''}${c.hours ? `<span>${ic('clock', 15)} ${esc(c.hours)} ساعات</span>` : c.level ? `<span>${ic('chart', 15)} ${esc(c.level)}</span>` : ''}</div>
       ${prog != null ? `<div class="bar" style="margin-top:8px"><i data-w="${prog}"></i></div><small class="muted">${prog}% مكتمل</small>` : ''}
@@ -123,7 +123,7 @@ function header(over) {
   const on = p => (p === '/' ? path === '/' : path.startsWith(p)) ? 'on' : '';
   return `<header class="nav ${over ? 'over' : ''}" id="nav"><div class="wrap nav-in">
     <a class="logo" href="#/">${logoMark()}<span>${esc(st.name)}</span></a>
-    <nav class="links" id="links" aria-label="القائمة الرئيسية"><a href="#/" class="${on('/')}">الرئيسية</a><a href="#/programs" class="${on('/programs')}">البرامج الدراسية</a><a href="#/courses" class="${on('/courses')}">الدورات</a><a href="#/about" class="${on('/about')}">عن ${esc(st.name)}</a><a href="#/contact" class="${on('/contact')}">تواصل معنا</a><a href="#/verify" class="${on('/verify')}">التحقق من شهادة</a></nav>
+    <nav class="links" id="links" aria-label="القائمة الرئيسية"><a href="#/" class="${on('/')}">الرئيسية</a><a href="#/programs" class="${on('/programs')}">البرامج الدراسية</a><a href="#/apply" class="${on('/apply')}">القبول</a><a href="#/courses" class="${on('/courses')}">الدورات</a><a href="#/about" class="${on('/about')}">عن ${esc(st.name)}</a><a href="#/contact" class="${on('/contact')}">تواصل معنا</a><a href="#/verify" class="${on('/verify')}">التحقق من شهادة</a></nav>
     <div class="nav-actions">
       <button class="icon-btn" data-act="theme" aria-label="تبديل المظهر">${ic(isDark() ? 'sun' : 'moon', 18)}</button>
       ${u ? (u.isAdmin ? `<a class="btn btn-sm btn-primary" href="${adminLink}">لوحة التحكم</a>` : `<a class="btn btn-sm btn-primary" href="#/me">${ic('user', 16)} ${esc(firstName(u.name))}</a>`)
@@ -171,7 +171,7 @@ async function viewHome() {
           <span class="eyebrow">${esc(st.tagline)}</span>
           <h1 class="hero-title">${esc(st.name)}<span class="sub">علمٌ يُطلب بأناة، ويُبنى على أصول</span></h1>
           <p class="hero-lead">${esc(st.heroText)}</p>
-          <div class="hero-cta"><a class="btn btn-brass" href="#/programs">البرامج الدراسية</a>${S.user ? `<a class="btn btn-ghost" href="${S.user.isAdmin ? adminLink : '#/me'}">${S.user.isAdmin ? 'لوحة التحكم' : 'متابعة التعلّم'}</a>` : (st.allowRegister ? `<a class="btn btn-ghost" href="#/register">أنشئ حسابك مجاناً</a>` : `<a class="btn btn-ghost" href="#/login">تسجيل الدخول</a>`)}</div>
+          <div class="hero-cta"><a class="btn btn-brass" href="#/apply">قدّم الآن</a><a class="btn btn-ghost" href="#/programs">البرامج الدراسية</a>${S.user ? `<a class="btn btn-ghost" href="${S.user.isAdmin ? adminLink : '#/me'}">${S.user.isAdmin ? 'لوحة التحكم' : 'متابعة التعلّم'}</a>` : ''}</div>
           <blockquote class="ayah">﴿وَقُل رَّبِّ زِدْنِي عِلْمًا﴾ <cite>طه: ١١٤</cite></blockquote>
         </div>
         <div class="hero-art">${girihArt()}</div>
@@ -205,9 +205,9 @@ async function viewHome() {
       <section class="section" style="padding-top:0"><div class="wrap">
         <div class="sec-head reveal"><div><h2>من التسجيل إلى الشهادة</h2></div></div>
         <div class="path reveal">
-          <div class="step"><h3>أنشئ حسابك</h3><p>باسم مستخدم وكلمة مرور، أو يضيفك المشرف مباشرة.</p></div>
-          <div class="step"><h3>أتمّ الدروس</h3><p>تُحفظ الدروس المكتملة ويظهر تقدّمك في كل دورة.</p></div>
-          <div class="step"><h3>اجتز الاختبار</h3><p>عند تجاوز درجة النجاح تصدر شهادتك ويمكن لأي أحد التحقق منها.</p></div>
+          <div class="step"><h3>قدّم طلب الالتحاق</h3><p>أنشئ حسابك واملأ طلب البرنامج الذي تريده، وتابع حالته من حسابك.</p></div>
+          <div class="step"><h3>القبول والقيد</h3><p>بعد مراجعة الطلب يصدر رقمك الجامعي، وتسجّل في فصلك الدراسي فتُفتح لك مواده.</p></div>
+          <div class="step"><h3>ادرس واختبر</h3><p>أتمّ دروس كل مادة واجتز اختبارها، لتصدر شهادتك برمز تحقق.</p></div>
         </div>
       </div></section>
       <section class="section" style="padding-top:0"><div class="wrap">
@@ -264,13 +264,15 @@ async function viewCourse(id) {
   if (!c || (!c.published && !S.user?.isAdmin)) return notFound('الدورة غير موجودة أو لم تُنشر بعد.');
   const isStudent = S.user && !S.user.isAdmin;
   const enr = isStudent ? await safeGet('enrollments', `${S.user.uid}_${id}`) : null;
+  /* مواد البرنامجين: التسجيل لمن قُبل في البرنامج ومستواه مطابق، بدل نافذة تسجيل الدورة */
+  const progC = isAdmProg(c.program), rec = progC && isStudent && !enr ? await safeGet('records', `${S.user.uid}_${c.program}`) : null;
   const lv = c.online && (enr || S.user?.isAdmin) ? (await safeGet('courseLive', id)) || {} : null, lst = lv ? liveState(lv) : null;
   const lessons = c.lessons || [], done = enr?.completed || [];
   const pct = lessons.length ? Math.round(lessons.filter(l => done.includes(l.id)).length / lessons.length * 100) : 0;
   const ex = c.exam || {}, nQ = (ex.questions || []).length;
   const totalMin = lessons.reduce((a, l) => a + (+l.duration || 0), 0);
   const cont = lessons.find(l => !done.includes(l.id)) || lessons[0];
-  const es = enrollState(c), started = courseStarted(c);
+  const es = progC ? { open: eligibleFor(c, rec), state: 'always' } : enrollState(c), started = courseStarted(c);
   const enrollBtn = es.open ? `<button class="btn btn-brass" data-enroll>سجّل في الدورة</button>` : '';
   const liveBtn = lv ? (lst.live && liveNowUrl(lv, lst) ? `<a class="btn btn-brass btn-join" href="${esc(liveNowUrl(lv, lst))}" target="_blank" rel="noopener">${ic('video', 17)} انضم إلى اللقاء الآن</a>` : `<button class="btn btn-ghost" data-golive>${ic('video', 17)} اللقاءات المباشرة</button>`) : '';
   const cta = S.user?.isAdmin ? `<a class="btn btn-brass" href="${adminLink}#/course/${c.id}">${ic('edit', 17)} تعديل الدورة</a>`
@@ -279,7 +281,7 @@ async function viewCourse(id) {
     : enrollBtn;
   const gate = !enr && !S.user?.isAdmin && !es.open;
   const closeNote = !enr && es.open && es.closesAt ? `<p class="enroll-note">${ic('clock', 15)} يُغلق التسجيل ${fmtDate(es.closesAt)}</p>` : '';
-  const regRow = es.state === 'always' ? '' : `<li><span class="n">${ic('calendar', 15)}</span><div class="t">التسجيل<small>${esc(enrollLabel(es))}</small></div></li>`;
+  const regRow = progC ? `<li><span class="n">${ic('shield', 15)}</span><div class="t">القبول<small>لطلاب ${esc(programName(c.program))} المقبولين</small></div></li>` : es.state === 'always' ? '' : `<li><span class="n">${ic('calendar', 15)}</span><div class="t">التسجيل<small>${esc(enrollLabel(es))}</small></div></li>`;
   return {
     over: true, docTitle: c.title,
     html: `<section class="chero" style="${themeStyle(c)}"><div class="pat" style="${PAT_BG}"></div>
@@ -287,7 +289,7 @@ async function viewCourse(id) {
         <span class="eyebrow" style="color:#fff;opacity:.85">${c.program ? `${esc(programName(c.program))}${termLabel(c.term) ? ` — ${esc(termLabel(c.term))}` : ''}` : esc(c.category || 'عام')}</span>
         <h1>${esc(c.title)}</h1><p class="lead">${esc(c.summary)}</p>
         <div class="cmeta">${c.online ? `<span>${ic('video', 16)} لقاءات مباشرة${meetVia(c.livePlatform)}</span>` : ''}${lessons.length || !c.online ? `<span>${ic('play', 16)} ${lessons.length} دروس</span>` : ''}${totalMin ? `<span>${ic('clock', 16)} نحو ${totalMin} دقيقة</span>` : ''}${nQ ? `<span>${ic('quiz', 16)} اختبار من ${nQ} أسئلة</span>` : ''}${c.level ? `<span>${ic('chart', 16)} ${esc(c.level)}</span>` : ''}${c.instructor ? `<span>${ic('user', 16)} ${esc(c.instructor)}</span>` : ''}</div>
-        ${gate ? enrollGate(es) : `<div class="hero-cta">${cta}${enr && lessons.length ? liveBtn : ''}</div>${closeNote}`}
+        ${gate ? (progC ? progGate(c, rec) : enrollGate(es)) : `<div class="hero-cta">${cta}${enr && lessons.length ? liveBtn : ''}</div>${closeNote}`}
         ${enr ? `<div style="max-width:420px;margin-top:20px"><div class="bar" style="background:rgba(255,255,255,.2)"><i data-w="${pct}"></i></div><small>${pct}% مكتمل</small></div>` : ''}
       </div></section>
       <div class="wrap cgrid">
@@ -306,20 +308,20 @@ async function viewCourse(id) {
             <li><span class="n">${ic('play', 15)}</span><div class="t">الدروس<small>${lessons.length}</small></div></li>
             <li><span class="n">${ic('quiz', 15)}</span><div class="t">الاختبار النهائي<small>${nQ ? `${nQ} أسئلة — النجاح من ${ex.passScore || 60}%` : 'لا يوجد — تصدر الشهادة بإتمام الدروس'}</small></div></li>
             <li><span class="n">${ic('award', 15)}</span><div class="t">الشهادة<small>تصدر برمز تحقق عند الإتمام</small></div></li>
-          </ol>${gate ? enrollGate(es, true) : cta.replace('btn-brass', 'btn-primary btn-block')}
+          </ol>${gate ? (progC ? progGate(c, rec, true) : enrollGate(es, true)) : cta.replace('btn-brass', 'btn-primary btn-block')}
         </div></aside>
       </div>`,
     mount() {
       runCountdowns(); mountLive(c, lv);
       $$('[data-enroll]').forEach(b => b.onclick = async () => {
         if (!S.user) { sessionStorage.setItem('bayan_next', `/course/${id}`); toast('سجّل دخولك أولاً للتسجيل في الدورة'); go('/login'); return; }
-        if (!enrollState(c).open) { toast('انتهت فترة التسجيل في هذه الدورة', 'err'); route(); return; }
+        if (!progC && !enrollState(c).open) { toast('انتهت فترة التسجيل في هذه الدورة', 'err'); route(); return; }
         b.disabled = true;
         try {
           await DB.set('enrollments', `${S.user.uid}_${id}`, { uid: S.user.uid, courseId: id, userName: S.user.name, courseTitle: c.title, completed: [], enrolledAt: Date.now() });
           toast('تم تسجيلك في الدورة', 'ok');
           if (courseStarted(c)) go(`/learn/${id}/${lessons[0]?.id || ''}`); else route();
-        } catch (e) { toast(/permission|insufficient/i.test(e.message) ? 'التسجيل في هذه الدورة مغلق حالياً' : 'تعذّر التسجيل: ' + e.message, 'err'); b.disabled = false; }
+        } catch (e) { toast(/permission|insufficient/i.test(e.message) ? (progC ? 'هذه المادة لطلاب البرنامج المقبولين في مستواها' : 'التسجيل في هذه الدورة مغلق حالياً') : 'تعذّر التسجيل: ' + e.message, 'err'); b.disabled = false; }
       });
     }
   };
@@ -625,7 +627,7 @@ async function viewRegister() {
         <label>رقم الجوال <span class="hint">(اختياري)</span><input name="phone" type="tel" dir="ltr"></label>
         <label>كلمة المرور <span class="hint">6 أحرف على الأقل</span><input name="password" type="password" required minlength="6" dir="ltr" autocomplete="new-password"></label>
         <div class="form-err" id="err"></div><button class="btn btn-primary btn-block">إنشاء الحساب</button>
-        <p class="hint" style="text-align:center"><a href="#/programs" style="color:var(--teal)">شروط القبول في البرامج</a></p></form>
+        <p class="hint" style="text-align:center">${(sessionStorage.getItem('bayan_next') || '').startsWith('/apply') ? 'بعد إنشاء الحساب تنتقل مباشرة إلى طلب الالتحاق.' : `<a href="#/programs" style="color:var(--teal)">شروط القبول في البرامج</a>`}</p></form>
       <p class="auth-alt">لديك حساب؟ <a href="#/login">سجّل دخولك</a></p></div></section>`,
     mount() {
       $('#f').onsubmit = async e => {
@@ -761,18 +763,18 @@ async function viewPrograms() {
           <span class="prog-n">البرنامج الأول</span><h2>${esc(programName('academy'))}</h2>
           <div class="pfacts dark"><span><b>2</b>سنتان</span><span><b>${rows.length}</b>مادة</span><span><b>4</b>فصول دراسية</span>${hrs ? `<span><b>${hrs}</b>ساعة أسبوعية</span>` : ''}<span><b>2</b>لغتان: العربية والإنكليزية</span></div>
           <p class="prose">${esc(st.acadIntro)}</p>
-          <p class="cond">${ic('check', 17)} <span><b>شرط القبول:</b> ${esc(st.acadAdmission)}</span></p>
+          <p class="cond">${ic('check', 17)} <span><b>شرط القبول:</b> ${esc(st.acadAdmission)}</span></p>${applyCta('academy')}
           ${[1, 2].map(y => `<div class="plan-year"><h3>${YEAR_NAMES[y]}</h3>${term(y * 2 - 1)}${term(y * 2)}</div>`).join('')}
         </section>
         <section class="panel reveal" id="p2">
           <span class="prog-n">البرنامج الثاني</span><h2>${esc(programName('ijaza'))}</h2>
           <p class="prose" style="margin-top:10px">${esc(st.ijazaIntro)}</p>
           <div class="isubs">${ijaza.map(ijazaCard).join('')}</div>
-          <p class="cond">${ic('check', 17)} <span><b>شرط القبول:</b> ${esc(st.ijazaAdmission)}</span></p>
+          <p class="cond">${ic('check', 17)} <span><b>شرط القبول:</b> ${esc(st.ijazaAdmission)}</span></p>${applyCta('ijaza')}
         </section>
         <div class="band reveal"><svg class="deco" viewBox="0 0 40 40" fill="none" stroke="#C9A45C" stroke-width=".8"><rect x="8" y="8" width="24" height="24"/><rect x="8" y="8" width="24" height="24" transform="rotate(45 20 20)"/><circle cx="20" cy="20" r="6"/></svg>
-          <div><h2>${esc(st.accredit)}</h2><p>أنشئ حسابك وابدأ، أو راسلنا للاستفسار عن القبول في البرنامجين.</p></div>
-          <div class="hero-cta" style="margin:0"><a class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.35)" href="#/contact">تواصل معنا</a>${!S.user && st.allowRegister ? `<a class="btn btn-brass" href="#/register">أنشئ حسابك</a>` : `<a class="btn btn-brass" href="#/courses?p=academy">مواد البرنامج</a>`}</div></div>
+          <div><h2>${esc(st.accredit)}</h2><p>قدّم طلب الالتحاق من حسابك، أو راسلنا للاستفسار عن القبول في البرنامجين.</p></div>
+          <div class="hero-cta" style="margin:0"><a class="btn btn-ghost" style="color:#fff;border-color:rgba(255,255,255,.35)" href="#/contact">تواصل معنا</a><a class="btn btn-brass" href="#/apply">قدّم الآن</a></div></div>
       </div>`,
     mount() { const h = location.hash.split('#')[2]; if (h) setTimeout(() => document.getElementById(h)?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' }), 60); }
   };
@@ -794,7 +796,7 @@ async function viewIjaza(key) {
         <aside><div class="panel sticky reveal">
           <h3>${esc(programName('ijaza'))}</h3>
           ${others.length ? `<div class="isubs mini" style="margin:12px 0 16px">${others.map(x => `<a class="isub" href="${x.href}"><span class="glyph">${ic(x.icon || 'book', 20)}</span><div class="grow"><h3>${esc(x.title)}</h3></div>${ic('prev', 15)}</a>`).join('')}</div>` : ''}
-          <div style="display:grid;gap:8px">${!S.user && st.allowRegister ? `<a class="btn btn-primary btn-block" href="#/register">أنشئ حسابك</a>` : ''}<a class="btn btn-ghost btn-block" href="#/contact">تواصل معنا</a><a class="btn btn-ghost btn-block" href="#/programs#p2">${ic('next', 16)} البرامج الدراسية</a></div>
+          <div style="display:grid;gap:8px"><a class="btn btn-primary btn-block" href="#/apply/ijaza">قدّم على البرنامج</a><a class="btn btn-ghost btn-block" href="#/contact">تواصل معنا</a><a class="btn btn-ghost btn-block" href="#/programs#p2">${ic('next', 16)} البرامج الدراسية</a></div>
         </div></aside>
       </div>`
   };
@@ -805,9 +807,199 @@ async function viewTerms() {
   return { over: true, docTitle: 'الشروط والخصوصية', html: `${pageHead('شروط الاستخدام وسياسة الخصوصية', st.name)}<div class="wrap" style="padding:48px 0 80px"><article class="panel reveal longtext" style="max-width:820px;margin-inline:auto">${richText(st.terms)}</article></div>` };
 }
 
+/* ================= التقديم والقبول =================
+   #/apply: اختيار البرنامج · #/apply/:program: نموذج الطلب أو حالته (?edit=1 لتعديل طلب مرسَل أو إعادة تقديم طلب مسحوب) */
+const goOrRoute = p => location.hash === '#' + p ? route() : go(p);
+const admCond = p => p === 'academy' ? S.settings.acadAdmission : S.settings.ijazaAdmission;
+/* بوابة القبول المغلق (بدل enrollGate التي تتحدث عن تسجيل الدورة) */
+const admGate = as => `<div class="gate compact"><strong>${ic(as.state === 'soon' ? 'calendar' : 'lock', 17)} ${esc(admLabel(as))}</strong><small>${esc(as.state === 'soon' ? (as.closesAt ? `ويستمر حتى ${fmtDate(as.closesAt)}` : 'تابع الصفحة وقدّم حين يفتح.') : as.note || 'تابع الصفحة لمعرفة موعد القبول القادم.')}</small></div>`;
+const applyCta = p => { const as = admState(p); return `<div class="apply-cta"><a class="btn btn-brass" href="#/apply/${p}">${as.open ? 'قدّم الآن' : 'تفاصيل القبول'}</a><small>${ic(as.open ? 'check' : 'calendar', 15)} ${esc(admLabel(as))}</small></div>`; };
+/* مراحل الطلب: تقديم ← مراجعة ← قرار ← قيد */
+function appSteps(a, rec) {
+  const s = rec ? 'accepted' : a?.status || '';
+  const st = [
+    ['تقديم الطلب', s ? 'done' : 'now', a?.submittedAt ? fmtDate(a.submittedAt) : ''],
+    ['المراجعة', s === 'accepted' || s === 'rejected' ? 'done' : s && s !== 'withdrawn' ? 'now' : '', s === 'incomplete' ? 'مطلوب استكمال' : s === 'waitlist' ? 'قائمة الانتظار' : ''],
+    ['القرار', s === 'accepted' ? 'done' : s === 'rejected' ? 'bad' : '', s === 'rejected' ? 'غير مقبول' : a?.decidedAt && s === 'accepted' ? fmtDate(a.decidedAt) : ''],
+    ['القيد في البرنامج', rec ? 'done' : '', rec?.studentNo ? 'الرقم الجامعي ' + rec.studentNo : '']
+  ];
+  return `<ol class="asteps">${st.map(([t, c, sub], i) => `<li class="${c}"><span class="n">${c === 'done' ? ic('check', 15) : c === 'bad' ? ic('x', 15) : i + 1}</span><div><b>${t}</b>${sub ? `<small>${esc(sub)}</small>` : ''}</div></li>`).join('')}</ol>`;
+}
+function applyAside(p) {
+  const as = admState(p);
+  return `<aside><div class="panel sticky reveal apply-side"><h3>${esc(programName(p))}</h3>
+    <p class="cond" style="margin:0 0 14px">${ic('check', 17)} <span><b>شرط القبول:</b> ${esc(admCond(p))}</span></p>
+    <ol class="lessons"><li><span class="n">${ic('calendar', 15)}</span><div class="t">موعد القبول<small>${esc(admLabel(as))}</small></div></li>
+    <li><span class="n">${ic('file', 15)}</span><div class="t">بعد الإرسال<small>تراجع الإدارة طلبك، وتتابع حالته من «حسابي».</small></div></li>
+    <li><span class="n">${ic('award', 15)}</span><div class="t">عند القبول<small>يصدر رقمك الجامعي، وتُفتح لك مواد ${p === 'academy' ? 'الفصل الأول حين تسجّل فيه' : 'مسارك'}.</small></div></li></ol>
+    <a class="btn btn-ghost btn-block" style="margin-top:14px" href="#/programs#${p === 'academy' ? 'p1' : 'p2'}">${ic('next', 16)} تفاصيل البرنامج</a></div></aside>`;
+}
+async function viewApply(p) {
+  const st = S.settings;
+  if (!p) return {
+    over: true, docTitle: 'القبول والتسجيل',
+    html: `${pageHead('القبول والتسجيل', st.accredit)}<div class="wrap" style="padding:40px 0 80px"><div class="progs reveal">
+      ${ADM_PROGS.map((k, i) => `<div class="prog ${i ? '' : 'prog-main'}"><span class="prog-n">البرنامج ${i ? 'الثاني' : 'الأول'}</span><h3>${esc(programName(k))}</h3><p>${esc(k === 'academy' ? st.acadIntro : st.ijazaIntro)}</p>
+        <small class="prog-cond">${ic('check', 15)} القبول: ${esc(admCond(k))}</small>${applyCta(k)}</div>`).join('')}</div></div>`
+  };
+  if (!isAdmProg(p)) return notFound('البرنامج غير موجود.');
+  const pn = programName(p), as = admState(p);
+  if (S.user?.isAdmin) return notFound('التقديم للطلاب — أنت داخل بحساب المشرف. تُراجَع الطلبات من لوحة التحكم ← القبول.');
+  if (!S.user) {
+    sessionStorage.setItem('bayan_next', `/apply/${p}`);
+    return {
+      over: true, docTitle: 'التقديم — ' + pn,
+      html: `${pageHead('التقديم على ' + pn, st.accredit)}<div class="wrap cgrid"><div class="panel reveal">
+        <h2>ابدأ بحسابك</h2><p class="prose">طلب الالتحاق مرتبط بحسابك في ${esc(st.name)}: منه تتابع حالة الطلب، وفيه يصدر رقمك الجامعي وتظهر موادك بعد القبول.</p>
+        ${appSteps(null)}${as.open ? '' : admGate(as)}
+        <div class="hero-cta">${st.allowRegister ? `<a class="btn btn-primary" href="#/register">أنشئ حساباً وقدّم</a>` : ''}<a class="btn btn-ghost" href="#/login">لدي حساب — سجّل دخولي</a></div></div>
+        ${applyAside(p)}</div>`
+    };
+  }
+  const uid = S.user.uid, id = `${uid}_${p}`;
+  const [a, rec, me] = await Promise.all([safeGet('applications', id), safeGet('records', id), safeGet('users', uid)]);
+  const edit = new URLSearchParams(location.hash.split('?')[1] || '').get('edit') === '1';
+  const canForm = !rec && (!a ? as.open : a.status === 'incomplete' || (edit && a.status === 'submitted') || (edit && a.status === 'withdrawn' && as.open));
+  if (!a && !rec && !as.open) return {
+    over: true, docTitle: 'التقديم — ' + pn,
+    html: `${pageHead('التقديم على ' + pn, st.accredit)}<div class="wrap cgrid"><div class="panel reveal" style="display:grid;gap:16px">${admGate(as)}${as.state === 'soon' ? countdownHtml(as.opensAt) : ''}</div>${applyAside(p)}</div>`,
+    mount: runCountdowns
+  };
+  return canForm ? applyForm(p, a, me || {}) : applyStatus(p, a, rec);
+}
+function applyStatus(p, a, rec) {
+  const pn = programName(p), s = rec ? 'accepted' : a.status, id = `${S.user.uid}_${p}`, as = admState(p);
+  const note = a?.decisionNote && ['incomplete', 'rejected', 'waitlist', 'accepted', 'review'].includes(a.status) ? a.decisionNote : '';
+  const lead = { submitted: 'وصل طلبك، وهو بانتظار المراجعة.', review: 'طلبك قيد المراجعة الآن.', waitlist: 'طلبك في قائمة الانتظار، وسنبلغك عند توفّر مقعد.', rejected: 'نعتذر، لم يُقبل طلبك في هذه الدفعة.', withdrawn: 'سحبت طلبك.', accepted: 'مبارك! قُبلت في البرنامج.' }[s] || '';
+  const row = (k, v) => v ? `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>` : '';
+  return {
+    over: true, docTitle: 'طلب الالتحاق — ' + pn,
+    html: `${pageHead(pn, 'طلب الالتحاق')}<div class="wrap cgrid"><div style="display:grid;gap:24px;align-content:start">
+      <div class="panel reveal"><div class="toolbar" style="margin-bottom:8px"><h2 class="grow" style="margin:0">حالة الطلب</h2>${stPill(APP_ST, s)}</div>
+        <p class="prose">${lead}</p>${appSteps(a, rec)}
+        ${note ? `<div class="dnote ${s === 'rejected' ? 'bad' : ''}"><b>${ic('info', 16)} ملاحظة الإدارة</b><p>${esc(note)}</p></div>` : ''}
+        ${rec ? `<dl class="facts"><div><dt>الرقم الجامعي</dt><dd dir="ltr">${esc(rec.studentNo || '—')}</dd></div>${rec.cohort ? `<div><dt>الدفعة</dt><dd>${esc(rec.cohort)}</dd></div>` : ''}<div><dt>${p === 'academy' ? 'المستوى' : 'المسار'}</dt><dd>${esc(recLevel(rec))}</dd></div><div><dt>حالة القيد</dt><dd>${stPill(REC_ST, rec.status)}</dd></div></dl>` : ''}
+        <div class="hero-cta">${rec ? `<a class="btn btn-primary" href="#/me">${ic('book', 17)} ملفي الأكاديمي وموادي</a>` : ''}
+          ${a?.status === 'submitted' ? `<a class="btn btn-primary" href="#/apply/${p}?edit=1">${ic('edit', 16)} تعديل الطلب</a>` : ''}
+          ${a?.status === 'withdrawn' && as.open ? `<a class="btn btn-primary" href="#/apply/${p}?edit=1">إعادة التقديم</a>` : ''}
+          ${a && ['submitted', 'incomplete'].includes(a.status) && !rec ? `<button class="btn btn-ghost danger-t" id="wd">سحب الطلب</button>` : ''}
+          <a class="btn btn-ghost" href="#/contact">${ic('mail', 16)} استفسار عن الطلب</a></div></div>
+      ${a ? `<div class="panel reveal"><h2>البيانات المرسلة</h2><dl class="facts">${row('الاسم', a.name)}${row('الاسم بالإنجليزية', a.nameEn)}${row('تاريخ الميلاد', a.birthDate ? fmtDate(new Date(a.birthDate).getTime()) : '')}${row('الجنسية', a.nationality)}${row('الإقامة', [a.country, a.city].filter(Boolean).join(' — '))}${row('الجوال', a.phone)}${row('المؤهل', [optName(QUALS, a.qual), a.qualSpec].filter(Boolean).join(' — '))}${p === 'ijaza' ? row('المسار', trackName(a.track)) + row('العربية', optName(ARABIC_LV, a.arabic)) : ''}${row('صورة المؤهل', a.hasFile ? 'مرفوعة' : '')}${row('أُرسل في', a.submittedAt ? fmtDT(a.submittedAt) : '')}</dl></div>` : ''}
+      </div>${applyAside(p)}</div>`,
+    mount() {
+      $('#wd') && ($('#wd').onclick = async () => {
+        if (!(await confirmBox(`سحب طلبك على «${esc(pn)}»؟ يمكنك التقديم من جديد ما دام القبول مفتوحاً.`, 'سحب الطلب'))) return;
+        try { await DB.update('applications', id, { status: 'withdrawn', updatedAt: Date.now() }); toast('سُحب الطلب'); route(); } catch (e) { toast(e.message, 'err'); }
+      });
+    }
+  };
+}
+function applyForm(p, a, me) {
+  const st = S.settings, pn = programName(p), id = `${S.user.uid}_${p}`, v = { ...me, ...(a || {}) };
+  const opts = (list, sel, ph) => `${ph ? `<option value="">${ph}</option>` : ''}${list.map(([k, t]) => `<option value="${k}" ${sel === k ? 'selected' : ''}>${t}</option>`).join('')}`;
+  const yr = new Date().getFullYear(), needFile = p === 'academy' && !v.hasFile;
+  return {
+    over: true, docTitle: 'التقديم — ' + pn,
+    html: `${pageHead('التقديم على ' + pn, st.accredit)}<div class="wrap cgrid"><div style="display:grid;gap:20px;align-content:start">
+      ${a?.status === 'incomplete' ? `<div class="dnote reveal"><b>${ic('info', 16)} طلبت الإدارة استكمال طلبك</b><p>${esc(a.decisionNote || 'راجع بياناتك وأكمل الناقص ثم أعد الإرسال.')}</p></div>` : ''}
+      <form class="form panel reveal" id="af" novalidate>
+        <fieldset class="fset"><legend>${ic('user', 17)} البيانات الشخصية</legend>
+          <label>الاسم الكامل <span class="hint">كما في وثائقك الرسمية، ويُكتب على الشهادة</span><input name="name" required minlength="6" maxlength="80" value="${esc(v.name)}"></label>
+          <label>الاسم بالإنجليزية <span class="hint">${p === 'academy' ? 'للشهادة الإنجليزية' : 'اختياري، للشهادة الإنجليزية'}</span><input name="nameEn" dir="ltr" maxlength="80" ${p === 'academy' ? 'required' : ''} value="${esc(v.nameEn)}" placeholder="e.g. Abdullah Ahmad Ali"></label>
+          <div class="row"><label>تاريخ الميلاد<input type="date" name="birthDate" required max="${toDateInput(Date.now())}" value="${esc(v.birthDate)}"></label><label>الجنس<select name="gender" required>${opts(GENDERS, v.gender, 'اختر')}</select></label></div>
+          <div class="row"><label>الجنسية<input name="nationality" required maxlength="40" value="${esc(v.nationality)}"></label><label>بلد الإقامة<input name="country" required maxlength="40" value="${esc(v.country)}"></label></div>
+          <label>المدينة <span class="hint">اختياري</span><input name="city" maxlength="40" value="${esc(v.city)}"></label>
+        </fieldset>
+        <fieldset class="fset"><legend>${ic('whatsapp', 17)} التواصل</legend>
+          <div class="row"><label>رقم الجوال <span class="hint">ويفضّل أن يكون عليه واتساب</span><input name="phone" type="tel" dir="ltr" required minlength="7" maxlength="20" value="${esc(v.phone)}"></label><label>البريد الإلكتروني <span class="hint">اختياري</span><input name="email" type="email" dir="ltr" maxlength="80" value="${esc(v.email)}"></label></div>
+        </fieldset>
+        <fieldset class="fset"><legend>${ic('award', 17)} المؤهل الدراسي</legend>
+          <div class="row"><label>أعلى مؤهل حصلت عليه<select name="qual" required>${opts(QUALS, v.qual, 'اختر')}</select></label><label>التخصص أو الفرع <span class="hint">مثل: علمي، أدبي، شريعة</span><input name="qualSpec" maxlength="60" value="${esc(v.qualSpec)}"></label></div>
+          <div class="row"><label>سنة الحصول عليه<input name="qualYear" type="number" min="1950" max="${yr}" value="${esc(v.qualYear)}"></label><label>الجهة المانحة <span class="hint">المدرسة أو الجامعة</span><input name="qualFrom" maxlength="80" value="${esc(v.qualFrom)}"></label></div>
+          <div class="upl"><label class="upl-box" for="qf"><span class="upl-prev" id="qprev">${v.hasFile ? ic('check', 22) : ic('upload', 22)}</span><span><b id="qlbl">${v.hasFile ? 'صورة المؤهل مرفوعة — اضغط لاستبدالها' : 'صورة شهادة المؤهل'}</b><small>${p === 'academy' ? 'مطلوبة' : 'اختيارية'} — صورة واضحة JPG أو PNG من الهاتف تكفي</small></span></label><input type="file" id="qf" accept="image/*" hidden></div>
+        </fieldset>
+        ${p === 'ijaza' ? `<fieldset class="fset"><legend>${ic('book', 17)} مسار الإجازة</legend>
+          <div class="tracks">${IJAZA_PLAN.map(t => `<label class="track"><input type="radio" name="track" value="${t.key}" required ${v.track === t.key ? 'checked' : ''}><span>${ic(t.icon, 22)}<b>${esc(t.title)}</b><small>${esc(t.book)}</small></span></label>`).join('')}</div>
+          <div class="row"><label>مستوى اللغة العربية<select name="arabic" required>${opts(ARABIC_LV, v.arabic, 'اختر')}</select></label><label>مقدار ما تحفظه من القرآن <span class="hint">مثل: 5 أجزاء</span><input name="quranAmt" maxlength="60" value="${esc(v.quranAmt)}"></label></div>
+          <label>إجازات أو سند سابق <span class="hint">اختياري — اذكر الشيخ والرواية أو الكتاب</span><input name="priorIjaza" maxlength="160" value="${esc(v.priorIjaza)}"></label>
+        </fieldset>` : ''}
+        <fieldset class="fset"><legend>${ic('pen', 17)} عن رغبتك</legend>
+          <label>لماذا ترغب في الالتحاق بهذا البرنامج؟<textarea name="motivation" required minlength="20" maxlength="1500" rows="4">${esc(v.motivation)}</textarea></label>
+          <label>كيف عرفت ${esc(st.name)}؟ <span class="hint">اختياري</span><select name="heard"><option value="">—</option>${HEARD.map(h => `<option ${v.heard === h ? 'selected' : ''}>${h}</option>`).join('')}</select></label>
+        </fieldset>
+        <div class="issues" id="iss" hidden></div>
+        <label class="check"><input type="checkbox" name="pledge" required ${v.pledge ? 'checked' : ''}> أقرّ بصحة البيانات، وألتزم بنظام الدراسة في ${esc(st.name)}${st.terms ? ` و<a href="#/terms" target="_blank" style="color:var(--teal)">الشروط</a>` : ''}.</label>
+        <div class="form-err" id="err"></div>
+        <div class="hero-cta" style="margin:0"><button class="btn btn-primary">${a?.status === 'incomplete' ? 'إرسال الاستكمال' : a ? 'حفظ وإرسال الطلب' : 'إرسال الطلب'}</button>${a ? `<a class="btn btn-ghost" href="#/apply/${p}">إلغاء</a>` : ''}</div>
+      </form></div>${applyAside(p)}</div>`,
+    mount() {
+      const f = $('#af'); let file = null;
+      const vals = () => { const fd = new FormData(f); return Object.fromEntries(['name', 'nameEn', 'birthDate', 'gender', 'nationality', 'country', 'city', 'phone', 'email', 'qual', 'qualSpec', 'qualYear', 'qualFrom', 'track', 'arabic', 'quranAmt', 'priorIjaza', 'motivation', 'heard'].map(k => [k, String(fd.get(k) ?? '').trim()])); };
+      const check = () => {
+        const x = admissionIssues(p, { ...vals(), hasFile: true }), box = $('#iss');
+        box.hidden = !x.hard.length && !x.soft.length;
+        box.innerHTML = x.hard.map(t => `<p class="bad">${ic('ban', 16)} ${esc(t)}</p>`).join('') + x.soft.map(t => `<p>${ic('info', 16)} ${esc(t)}</p>`).join('');
+        return x;
+      };
+      f.oninput = check; f.onchange = check; check();
+      $('#qf').onchange = async e => {
+        const fl = e.target.files[0]; if (!fl) return; $('#qlbl').textContent = 'جارٍ تجهيز الصورة…';
+        try { file = await compressImage(fl); $('#qprev').innerHTML = `<img src="${file}" alt="">`; $('#qlbl').textContent = fl.name; }
+        catch (err) { file = null; $('#qlbl').textContent = err.message; toast(err.message, 'err'); }
+      };
+      f.onsubmit = async e => {
+        e.preventDefault(); $('#err').textContent = '';
+        if (!f.checkValidity()) { f.reportValidity(); return; }
+        const d = vals(), x = check();
+        if (x.hard.length) { $('#err').textContent = 'لا يمكن إرسال الطلب: ' + x.hard[0]; return; }
+        if (needFile && !file) { $('#err').textContent = 'ارفع صورة شهادة المؤهل الدراسي.'; return; }
+        const b = $('button', f); b.disabled = true;
+        try {
+          const now = Date.now();
+          if (file) await DB.set('appFiles', id, { uid: S.user.uid, program: p, data: file, name: 'qualification.jpg', at: now });
+          const data = { ...d, uid: S.user.uid, program: p, track: p === 'ijaza' ? d.track : '', userName: d.name, username: S.user.username || '', pledge: true, hasFile: !!(file || v.hasFile), status: 'submitted', updatedAt: now, submittedAt: a?.status === 'submitted' ? a.submittedAt || now : now };
+          if (p !== 'ijaza') for (const k of ['arabic', 'quranAmt', 'priorIjaza']) data[k] = '';
+          if (a) await DB.update('applications', id, data); else await DB.set('applications', id, data);
+          DB.update('users', S.user.uid, { name: d.name, nameEn: d.nameEn, phone: d.phone }).then(() => { S.user.name = d.name; }).catch(() => {});
+          toast(a?.status === 'incomplete' ? 'أُرسل الاستكمال' : 'أُرسل طلبك — تابع حالته من هنا', 'ok'); goOrRoute(`/apply/${p}`);
+        } catch (err) { $('#err').textContent = /permission|insufficient/i.test(err.message) ? 'تعذّر الإرسال: القبول مغلق أو الطلب لا يقبل التعديل الآن.' : err.message; b.disabled = false; }
+      };
+    }
+  };
+}
+/* زر يظهر بدل «سجّل» في مواد البرنامجين لمن لم يُقبل أو لم يصل مستواها */
+function progGate(c, rec, compact) {
+  const pn = programName(c.program); let head, sub, btn = '';
+  if (!rec) { head = `هذه المادة لطلاب ${pn}`; sub = 'تُفتح بعد قبولك في البرنامج وتسجيلك في فصلها.'; btn = `<a class="btn btn-sm btn-brass" href="#/apply/${c.program}">قدّم على البرنامج</a>`; }
+  else if (rec.status !== 'active') { head = 'قيدك في البرنامج غير منتظم'; sub = `حالة القيد: ${(REC_ST[rec.status] || [rec.status])[0]}. تواصل مع الإدارة.`; }
+  else if (c.program === 'academy') { head = `هذه المادة من ${termLabel(c.term) || 'فصل آخر'}`; sub = `أنت الآن في ${termLabel(rec.level)}. تُفتح مواد كل فصل حين تسجّل فيه.`; btn = `<a class="btn btn-sm btn-brass" href="#/me">ملفي الأكاديمي</a>`; }
+  else { head = 'هذه المادة من مسار آخر'; sub = `مسارك في البرنامج: ${trackName(rec.track) || '—'}.`; }
+  return `<div class="gate ${compact ? 'compact' : ''}"><strong>${ic('lock', 17)} ${esc(head)}</strong><small>${esc(sub)}</small>${btn}</div>`;
+}
+/* الملف الأكاديمي في «حسابي»: القيد والفصول وحالة الطلبات */
+function acadSection(apps, recs, regs, terms, courses) {
+  const st = S.settings;
+  if (!apps.length && !recs.length) return `<div class="acad-invite reveal">${ic('award', 28)}<div class="grow"><h3>انضم إلى أحد برنامجي ${esc(st.name)}</h3><p class="muted">${esc(st.accredit)}</p></div><a class="btn btn-brass" href="#/apply">قدّم الآن</a></div>`;
+  const recCard = r => {
+    const my = regs.filter(g => g.program === r.program).sort((x, y) => y.at - x.at);
+    const open = r.program === 'academy' && r.status === 'active' ? terms.filter(t => enrollState(t).open && !my.some(g => g.termId === t.id)).sort((x, y) => (+x.startsAt || 0) - (+y.startsAt || 0))[0] : null;
+    const lc = open ? levelCourses(courses, r.level) : [];
+    const ijc = r.program === 'ijaza' ? courses.filter(c => eligibleFor(c, r) && c.published) : [];
+    return `<div class="acad reveal"><div class="acad-h"><div class="grow"><span class="prog-n">${esc(programName(r.program))}</span><h3>${esc(recLevel(r))}</h3></div>${stPill(REC_ST, r.status)}</div>
+      <dl class="facts"><div><dt>الرقم الجامعي</dt><dd dir="ltr">${esc(r.studentNo || '—')}</dd></div>${r.cohort ? `<div><dt>الدفعة</dt><dd>${esc(r.cohort)}</dd></div>` : ''}<div><dt>تاريخ القبول</dt><dd>${fmtDate(r.admittedAt)}</dd></div></dl>
+      ${open ? `<div class="term-cta"><div class="grow"><b>${ic('calendar', 16)} التسجيل مفتوح في ${esc(open.name)}</b><small>${lc.length ? `${nMawad(lc.length)} من ${esc(termLabel(r.level))}: ${esc(lc.map(c => c.title).join('، '))}` : 'لم تُنشر مواد هذا الفصل بعد، ويمكنك التسجيل الآن وتُضاف موادك عند نشرها.'}${enrollState(open).closesAt ? ` — حتى ${fmtDate(enrollState(open).closesAt)}` : ''}</small></div><button class="btn btn-brass" data-regterm="${open.id}">سجّل في الفصل</button></div>` : ''}
+      ${my.length ? `<div class="regs"><h4>فصولي</h4>${my.map(g => `<div class="reg-row">${ic('check', 15)}<span class="grow"><b>${esc(g.termName)}</b> — ${esc(termLabel(g.level))}</span><small>${nMawad((g.courseIds || []).length)}</small></div>`).join('')}</div>` : r.program === 'academy' && !open && r.status === 'active' ? `<p class="muted" style="margin:12px 0 0">يُفتح التسجيل في الفصل الدراسي من الإدارة، وسيظهر لك هنا.</p>` : ''}
+      ${ijc.length ? `<div class="regs"><h4>موادي في البرنامج</h4>${ijc.map(c => `<a class="reg-row" href="#/course/${c.id}">${ic(c.icon || 'book', 15)}<span class="grow"><b>${esc(c.title)}</b></span>${ic('prev', 14)}</a>`).join('')}</div>` : ''}
+    </div>`;
+  };
+  const pending = apps.filter(a => !recs.some(r => r.program === a.program));
+  return `<div class="acads">${recs.map(recCard).join('')}${pending.map(a => `<a class="acad acad-app reveal" href="#/apply/${a.program}"><div class="acad-h"><div class="grow"><span class="prog-n">طلب الالتحاق</span><h3>${esc(programName(a.program))}</h3></div>${stPill(APP_ST, a.status)}</div><small class="muted">${a.status === 'incomplete' ? 'طلبت الإدارة استكمال طلبك — اضغط للاستكمال.' : `أُرسل في ${fmtDate(a.submittedAt)} — اضغط لمتابعة حالته.`}</small></a>`).join('')}</div>`;
+}
+
 /* ================= حساب الطالب ================= */
 async function viewMe() {
-  const [enr, certs, courses, att] = await Promise.all([safeList('enrollments', { uid: S.user.uid }), safeList('certificates', { uid: S.user.uid }), safeList('courses'), safeList('attempts', { uid: S.user.uid })]);
+  const [enr, certs, courses, att, apps, recs, regs, terms] = await Promise.all([safeList('enrollments', { uid: S.user.uid }), safeList('certificates', { uid: S.user.uid }), safeList('courses'), safeList('attempts', { uid: S.user.uid }),
+    safeList('applications', { uid: S.user.uid }), safeList('records', { uid: S.user.uid }), safeList('regs', { uid: S.user.uid }), safeList('terms')]);
   const cm = Object.fromEntries(courses.map(c => [c.id, c]));
   const mine = enr.map(e => { const c = cm[e.courseId]; if (!c) return null; const ls = c.lessons || []; return { c, pct: ls.length ? Math.round(ls.filter(l => (e.completed || []).includes(l.id)).length / ls.length * 100) : 0, at: e.lastAt || e.enrolledAt }; }).filter(Boolean).sort((a, b) => b.at - a.at);
   const h = new Date().getHours();
@@ -819,13 +1011,25 @@ async function viewMe() {
     docTitle: 'حسابي',
     html: `<div class="wrap"><div class="me-head reveal"><p class="muted">${h < 12 ? 'صباح الخير' : 'مساء الخير'}</p><h1>${esc(S.user.name)}</h1>
       <div class="hero-cta" style="margin-top:14px"><a class="btn btn-primary" href="#/courses">${ic('plus', 17)} دورة جديدة</a><button class="btn btn-ghost" data-act="logout">${ic('logout', 17)} تسجيل الخروج</button></div></div>
-      <div class="stats reveal" style="margin-bottom:40px"><div class="stat"><b data-count="${mine.length}">0</b><span>دورة مسجّلة</span></div><div class="stat"><b data-count="${mine.filter(m => m.pct === 100).length}">0</b><span>دورة مكتملة الدروس</span></div><div class="stat"><b data-count="${certs.length}">0</b><span>شهادة</span></div><div class="stat"><b data-count="${att.length}">0</b><span>محاولة اختبار</span></div></div>
+      <h2 style="margin-bottom:18px">ملفي الأكاديمي</h2>${acadSection(apps, recs, regs, terms.filter(t => (t.program || 'academy') === 'academy'), courses)}
+      <div class="stats reveal" style="margin:40px 0"><div class="stat"><b data-count="${mine.length}">0</b><span>دورة مسجّلة</span></div><div class="stat"><b data-count="${mine.filter(m => m.pct === 100).length}">0</b><span>دورة مكتملة الدروس</span></div><div class="stat"><b data-count="${certs.length}">0</b><span>شهادة</span></div><div class="stat"><b data-count="${att.length}">0</b><span>محاولة اختبار</span></div></div>
       ${lives.length ? `<h2 style="margin-bottom:18px">لقاءاتي المباشرة</h2><div class="live-list reveal" style="margin-bottom:40px">${lives.map(x => `<div class="chan live-row ${x.on ? 'on' : ''}">${meetBadge(x.p)}<span class="grow"><a href="#/course/${x.c.id}"><strong>${esc(x.c.title)}</strong></a><small>${x.on ? `<b class="live-tag"><span class="dot" aria-hidden="true"></span> جارٍ الآن</b> ${esc(x.s.title)}` : x.s ? `${fmtSess(x.s)} — ${esc(x.s.title)}` : esc(x.c.liveSchedule || 'رابط ثابت للقاءات')}</small></span>${x.url ? `<a class="btn btn-sm ${x.on ? 'btn-brass' : 'btn-ghost'}" href="${esc(x.url)}" target="_blank" rel="noopener">${ic('video', 15)} ${x.on ? 'انضم الآن' : 'الرابط'}</a>` : ''}</div>`).join('')}</div>` : ''}
       <h2 style="margin-bottom:18px">دوراتي</h2>
       ${mine.length ? `<div class="grid-c">${mine.map(m => courseCard(m.c, m.pct)).join('')}</div>` : `<div class="empty">${ic('book', 36)}<p style="margin-bottom:14px">لم تسجّل في أي دورة بعد.</p><a class="btn btn-primary" href="#/courses">تصفّح الدورات</a></div>`}
       <h2 style="margin:46px 0 18px">شهاداتي</h2>
       ${certs.length ? `<div style="display:grid;gap:10px;margin-bottom:70px">${certs.map(ct => `<a class="cert-row reveal" href="#/cert/${ct.id}">${ic('award', 28)}<div style="flex:1"><strong>${esc(ct.courseTitle)}</strong><br><small class="muted">${fmtDate(ct.issuedAt)}${ct.score != null ? ` — ${ct.score}%` : ''}</small></div><small dir="ltr" class="muted">${esc(ct.id)}</small></a>`).join('')}</div>` : `<div class="empty" style="margin-bottom:70px">${ic('award', 36)}<p>تظهر شهاداتك هنا عند إتمام الدورات واجتياز اختباراتها.</p></div>`}
-    </div>`
+    </div>`,
+    mount() {
+      $$('[data-regterm]').forEach(b => b.onclick = async () => {
+        const t = terms.find(x => x.id === b.dataset.regterm), r = recs.find(x => x.program === 'academy');
+        if (!t || !r) return;
+        const lc = levelCourses(courses, r.level);
+        if (!(await confirmBox(`التسجيل في «${esc(t.name)}» — ${esc(termLabel(r.level))}${lc.length ? `، وتُفتح لك ${nMawad(lc.length)}` : ''}؟`, 'سجّلني'))) return;
+        b.disabled = true;
+        try { await registerInTerm(r, t, courses, 'self'); toast(`سُجّلت في ${t.name}`, 'ok'); route(); }
+        catch (e) { toast(/permission|insufficient/i.test(e.message) ? 'التسجيل في هذا الفصل مغلق، أو لا يطابق مستواك — تواصل مع الإدارة' : e.message, 'err'); b.disabled = false; }
+      });
+    }
   };
 }
 
@@ -836,7 +1040,7 @@ const APP = {
   routes: [
     [/^\/?$/, viewHome], [/^\/courses(?:\?.*)?$/, viewCourses], [/^\/programs(?:#.*)?$/, viewPrograms], [/^\/ijaza\/([^/]+)$/, viewIjaza], [/^\/course\/([^/]+)$/, viewCourse],
     [/^\/learn\/([^/]+)(?:\/([^/]*))?$/, viewLearn, 'student'], [/^\/exam\/([^/]+)$/, viewExam, 'student'],
-    [/^\/login$/, viewLogin], [/^\/register$/, viewRegister], [/^\/me$/, viewMe, 'student'],
+    [/^\/apply(?:\/([^/]+))?$/, viewApply], [/^\/login$/, viewLogin], [/^\/register$/, viewRegister], [/^\/me$/, viewMe, 'student'],
     [/^\/cert\/([^/]+)(?:\/(ar|en))?$/, viewCert], [/^\/verify$/, viewVerify],
     [/^\/about$/, viewAbout], [/^\/contact$/, viewContact], [/^\/terms$/, viewTerms]
   ],

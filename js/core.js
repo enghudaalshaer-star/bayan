@@ -108,6 +108,8 @@ const DEFAULTS = {
   ijazaIntro: 'برنامج لمنح الإجازات في القرآن الكريم والحديث النبوي وعلومه. اختر المادة لتعرف ما تتضمنه.',
   ijazaAdmission: 'أن يكون عمر المتقدم فوق عشر سنوات، وأن يكون متقناً للغة العربية.',
   accredit: 'شهادة علمية موثّقة ومعتمدة من وزارة الأوقاف',
+  /* القبول: نافذة كل برنامج (نفس صيغة تسجيل الدورة) والدفعة الافتراضية للمقبولين */
+  adm: { academy: { enrollMode: 'open' }, ijaza: { enrollMode: 'open' } }, admCohort: '',
   contact: '', allowRegister: true, adminUser: 'admin', adminHash: null,
   certTemplate: 'classic', certLangs: 'both', certDefault: '', /* certDefault = معرّف نوع الشهادة الافتراضي (certTypes) */
   /* صفحات «عن المنصة» و«تواصل معنا» و«الشروط» */
@@ -191,6 +193,87 @@ function academyCourses() {
 }
 /* يرتّب المواد حسب الفصل ثم رقم المادة */
 const planSort = (a, b) => (+a.term || 9) - (+b.term || 9) || (+a.order || 99) - (+b.order || 99) || (b.createdAt || 0) - (a.createdAt || 0);
+/* ================= القبول والقيد (المرحلة الأولى من النظام الجامعي) =================
+   applications/{uid}_{program}: طلب الالتحاق — يكتبه الطالب (APP_KEYS فقط) ويقرّر فيه المشرف.
+   appFiles/{uid}_{program}: صورة المؤهل الدراسي (منفصلة لأنها كبيرة).
+   records/{uid}_{program}: القيد في البرنامج بعد القبول — studentNo, cohort, level (1..4 للأكاديمي), track (للإجازات), status.
+   terms/{id}: الفصول الدراسية الزمنية للبرنامج الأكاديمي، ونافذة تسجيلها enrollMode/enrollStart/enrollEnd (تُقرأ بـ enrollState).
+   regs/{uid}_{termId}: تسجيل الطالب في فصل — ينشئ تسجيلات مواد مستواه.
+   counters/students: تسلسل الأرقام الجامعية لكل سنة وبرنامج. */
+const ADM_PROGS = ['academy', 'ijaza'];
+const isAdmProg = p => ADM_PROGS.includes(p || '');
+const APP_KEYS = ['uid', 'program', 'track', 'userName', 'username', 'name', 'nameEn', 'birthDate', 'gender', 'nationality', 'country', 'city', 'phone', 'email', 'qual', 'qualSpec', 'qualYear', 'qualFrom', 'arabic', 'quranAmt', 'priorIjaza', 'motivation', 'heard', 'pledge', 'hasFile', 'status', 'submittedAt', 'updatedAt'];
+const APP_ST = { submitted: ['بانتظار المراجعة', 'mut'], review: ['قيد المراجعة', 'warn'], incomplete: ['مطلوب استكمال', 'warn'], waitlist: ['قائمة الانتظار', 'mut'], accepted: ['مقبول', 'ok'], rejected: ['غير مقبول', 'no'], withdrawn: ['مسحوب', 'mut'] };
+const REC_ST = { active: ['منتظم', 'ok'], deferred: ['مؤجّل', 'mut'], suspended: ['موقوف', 'no'], withdrawn: ['منسحب', 'mut'], completed: ['أنهى المواد', 'ok'] };
+const stPill = (map, k) => `<span class="pill ${(map[k] || [])[1] || 'mut'}">${esc((map[k] || [k])[0])}</span>`;
+const QUALS = [['below', 'أقل من الثانوية'], ['secondary', 'الثانوية العامة'], ['diploma', 'دبلوم'], ['bachelor', 'بكالوريوس'], ['master', 'ماجستير'], ['phd', 'دكتوراه']];
+const ARABIC_LV = [['fluent', 'متقن (لغة أم أو ما يعادلها)'], ['good', 'جيد'], ['fair', 'متوسط']];
+const GENDERS = [['m', 'ذكر'], ['f', 'أنثى']];
+const HEARD = ['وسائل التواصل الاجتماعي', 'صديق أو قريب', 'مسجد أو مدرسة أو جمعية', 'بحث في الإنترنت', 'أخرى'];
+/* العدد مع «مادة» بصيغته العربية */
+const nMawad = n => n === 1 ? 'مادة واحدة' : n === 2 ? 'مادتان' : n >= 3 && n <= 10 ? `${n} مواد` : `${n} مادة`;
+const optName = (list, k) => (list.find(x => x[0] === k) || [, ''])[1];
+const trackName = k => (IJAZA_PLAN.find(x => x.key === k) || {}).title || '';
+const ageOf = (birth, now = Date.now()) => { if (!birth) return null; const b = new Date(birth), n = new Date(now); let a = n.getFullYear() - b.getFullYear(); if (n.getMonth() < b.getMonth() || (n.getMonth() === b.getMonth() && n.getDate() < b.getDate())) a--; return a; };
+/* نافذة القبول لكل برنامج في الإعدادات: settings.adm[program] = {enrollMode, enrollStart, enrollEnd, enrollNote} */
+const admState = p => enrollState((S.settings.adm || {})[p] || {});
+const admLabel = st => ({ always: 'القبول مفتوح', open: st.closesAt ? `القبول مفتوح حتى ${fmtDate(st.closesAt)}` : 'القبول مفتوح', soon: `يفتح القبول ${fmtDate(st.opensAt)}`, ended: 'انتهت فترة القبول', closed: 'القبول مغلق حالياً' }[st.state]);
+/* الشروط غير المستوفاة في طلب: [شديد (يمنع التقديم)، ملاحظة للمراجِع] */
+function admissionIssues(p, a) {
+  const hard = [], soft = [], age = ageOf(a.birthDate);
+  if (p === 'academy' && a.qual === 'below') hard.push('المؤهل أقل من الثانوية، وشرط القبول: ' + S.settings.acadAdmission);
+  if (p === 'ijaza') {
+    if (age != null && age <= 10) hard.push('العمر ' + age + ' سنوات، وشرط القبول أن يكون فوق عشر سنوات');
+    if (a.arabic && a.arabic !== 'fluent') soft.push('مستوى العربية: ' + optName(ARABIC_LV, a.arabic) + ' — والشرط الإتقان');
+  }
+  if (p === 'academy' && !a.hasFile) soft.push('لم تُرفع صورة المؤهل');
+  return { hard, soft };
+}
+/* المستوى الحالي للطالب في برنامجه */
+const recLevel = r => r.program === 'academy' ? termLabel(r.level) || '—' : trackName(r.track) || programName(r.program);
+/* هل يحق لصاحب القيد التسجيل في هذه المادة؟ (نفس منطق القاعدة admitted في firestore.rules) */
+const eligibleFor = (c, r) => !!r && r.status === 'active' && r.program === c.program && (c.program === 'academy' ? +c.term === +r.level : (r.track || '') === (c.ijazaKey || ''));
+/* مواد مستوى معيّن في البرنامج الأكاديمي (المنشورة فقط) */
+const levelCourses = (courses, level) => courses.filter(c => c.program === 'academy' && +c.term === +level && c.published).sort(planSort);
+/* known: مجموعة معرّفات تسجيلات محمّلة مسبقاً (للتسجيل الجماعي من الإدارة) بدل قراءة كل تسجيل */
+async function enrollIn(r, c, known) {
+  const id = `${r.uid}_${c.id}`;
+  if (known ? known.has(id) : await safeGet('enrollments', id)) return false;
+  await DB.set('enrollments', id, { uid: r.uid, courseId: c.id, userName: r.name, courseTitle: c.title, completed: [], enrolledAt: Date.now() });
+  known?.add(id); return true;
+}
+/* تسجيل الطالب في فصل: مستند regs ثم تسجيل مواد مستواه. by: self | admin */
+async function registerInTerm(r, term, courses, by = 'self', known) {
+  const list = levelCourses(courses, r.level), id = `${r.uid}_${term.id}`;
+  const reg = { uid: r.uid, termId: term.id, termName: term.name, program: 'academy', level: +r.level, name: r.name, studentNo: r.studentNo || '', courseIds: list.map(c => c.id), at: Date.now(), by };
+  await DB.set('regs', id, reg);
+  for (const c of list) await enrollIn(r, c, known);
+  return { id, ...reg };
+}
+/* الرقم الجامعي: سنتان من السنة + 1 أكاديمي / 2 إجازات + تسلسل من 4 أرقام، مثل 2610007 (للمشرف فقط) */
+async function nextStudentNo(p) {
+  const yy = String(new Date().getFullYear()).slice(2), k = `${yy}_${p}`;
+  const cnt = (await safeGet('counters', 'students')) || {}, n = (+cnt[k] || 0) + 1;
+  await DB.update('counters', 'students', { [k]: n });
+  return `${yy}${p === 'academy' ? 1 : 2}${String(n).padStart(4, '0')}`;
+}
+/* ضغط صورة إلى JPEG بحجم يناسب مستند Firestore */
+async function compressImage(file, maxSide = 1600, limit = 900000) {
+  if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) throw new Error('ارفع صورة بصيغة JPG أو PNG أو WEBP');
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('تعذّرت قراءة الصورة')); i.src = url; });
+    let s = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight)), q = .85;
+    for (let k = 0; k < 10; k++) {
+      const cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth * s); cv.height = Math.round(img.naturalHeight * s);
+      const x = cv.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, cv.width, cv.height); x.drawImage(img, 0, 0, cv.width, cv.height);
+      const out = cv.toDataURL('image/jpeg', q); if (out.length < limit) return out;
+      if (q > .55) q -= .1; else s *= .8;
+    }
+    throw new Error('الصورة كبيرة جداً — صوّرها بدقة أقل');
+  } finally { URL.revokeObjectURL(url); }
+}
+const openDataUrl = async d => { const b = await (await fetch(d)).blob(); const u = URL.createObjectURL(b); window.open(u, '_blank', 'noopener'); setTimeout(() => URL.revokeObjectURL(u), 60000); };
 /* ================= اللقاءات المباشرة (الدورات الأونلاين) =================
    في الدورة (عام للزوّار): online, livePlatform, liveSchedule (نص المواعيد).
    في courseLive/{courseId} (للطلاب المسجّلين والمشرف فقط حسب القواعد):
