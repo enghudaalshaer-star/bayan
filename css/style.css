@@ -800,3 +800,44 @@ a.reg-row:hover{background:var(--mist)}
 .bulk b{color:var(--teal);margin-inline-end:auto}
 .dec{flex-wrap:wrap}
 .facts dd{unicode-bidi:plaintext;text-align:right}
+/* القيد بالبرنامج والفصول والتقويم الأكاديمي */
+.notice{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;padding:12px 16px;margin-bottom:14px;border-radius:14px;border:1px solid var(--line);background:var(--surface-2)}
+.notice .grow{flex:1;min-width:220px}
+.notice.warn{background:color-mix(in srgb,var(--warn) 10%,transparent);border-color:color-mix(in srgb,var(--warn) 30%,transparent)}
+.notice.warn>.ic{color:var(--warn)}
+.close-term{border:1.5px dashed color-mix(in srgb,var(--brass) 60%,transparent)}
+.close-term.done{border-style:solid;border-color:var(--line)}
+.close-term h3{display:flex;align-items:center;gap:8px}
+.cal-list{display:grid;gap:6px}
+.cal-ev{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:12px;background:var(--surface-2);border-inline-start:3px solid var(--teal)}
+.cal-ev>.ic{color:var(--teal);flex:none}
+.cal-ev .grow{flex:1;min-width:0;display:grid;gap:2px}
+.cal-ev small{color:var(--muted)}
+.cal-ev.k-exam,.cal-ev.k-exams{border-color:var(--warn)}.cal-ev.k-exam>.ic,.cal-ev.k-exams>.ic{color:var(--warn)}
+.cal-ev.k-holiday{border-color:var(--ok)}.cal-ev.k-holiday>.ic{color:var(--ok)}
+.cal-ev.k-deadline{border-color:var(--danger)}.cal-ev.k-deadline>.ic{color:var(--danger)}
+.cal-ev.k-start,.cal-ev.k-end{border-color:var(--brass)}.cal-ev.k-start>.ic,.cal-ev.k-end>.ic{color:var(--brass)}
+.cal-ev.gone{opacity:.55}
+.cal-term h2{font-size:clamp(1.4rem,2.6vw,1.9rem)}
+.cal-term.now{border:1.5px solid var(--teal);box-shadow:0 0 0 4px color-mix(in srgb,var(--teal) 10%,transparent)}
+.cal-term.past{opacity:.75}
+.acad.wide{grid-column:1/-1}
+.mini-cal{display:flex;flex-wrap:wrap;gap:6px 14px;margin-top:6px;font-size:.85rem;opacity:.9}
+.mini-cal span{display:inline-flex;align-items:center;gap:6px}
+.term-cta .pill{margin-inline-start:6px;font-weight:600}
+.sp-h{margin:22px 0 10px;font-size:.95rem;color:var(--muted);font-weight:600}
+.splan{display:grid;gap:8px}
+.sp-step{border:1px solid var(--line);border-radius:16px;background:var(--surface);overflow:hidden}
+.sp-step summary{display:flex;align-items:center;gap:12px;padding:12px 14px;cursor:pointer;list-style:none}
+.sp-step summary::-webkit-details-marker{display:none}
+.sp-step summary .grow{flex:1;min-width:0;display:grid;gap:2px}
+.sp-step summary small{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:.85rem}
+.sp-n{width:32px;height:32px;border-radius:50%;display:grid;place-items:center;flex:none;font-weight:700;background:var(--surface-2);color:var(--muted)}
+.sp-step.done .sp-n{background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)}
+.sp-step.cur{border-color:var(--teal)}
+.sp-step.cur .sp-n{background:var(--teal);color:#fff}
+.sp-step.lock{background:var(--surface-2)}
+.sp-step.lock summary b{color:var(--muted)}
+.sp-courses{display:grid;gap:6px;padding:0 14px 14px}
+.reg-row.off{opacity:.65}
+.reg-row.off .ic{color:var(--muted)}
