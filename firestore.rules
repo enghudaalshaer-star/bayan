@@ -63,31 +63,25 @@ service cloud.firestore {
     // القيد في البرنامج بعد القبول (الرقم الجامعي، المستوى، المسار، الحالة): يكتبه المشرف فقط
     match /records/{id}  { allow read: if ownRead(); allow write: if isAdmin(); }
     match /counters/{id} { allow read, write: if isAdmin(); }
-    // الفصول الدراسية: يقرؤها الجميع، ويكتبها المشرف
+    // الفصول الدراسية والتقويم الأكاديمي (المواعيد والامتحانات والأحداث): يقرؤها الجميع، ويكتبها المشرف
     match /terms/{id}    { allow read: if true; allow write: if isAdmin(); }
-    // تسجيل الطالب في فصل {uid}_{termId}: بنفسه حين يكون تسجيل الفصل مفتوحاً، وبمستواه الحالي في قيده المنتظم
-    match /regs/{id} {
-      allow read: if ownRead();
-      allow create: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.termId
-        && request.resource.data.program == 'academy'
-        && inWindow(get(/databases/$(db)/documents/terms/$(request.resource.data.termId)).data, 'closed')
-        && activeRec('academy') && get(recPath('academy')).data.level == request.resource.data.level);
-      allow update, delete: if isAdmin();
-    }
+    // قيد الطالب في فصل {uid}_{termId}: تكتبه الإدارة فقط (عند القبول أو الترفيع أو القيد الجماعي) — لا تسجيل ذاتي
+    match /regs/{id}     { allow read: if ownRead(); allow write: if isAdmin(); }
 
     // التسجيل الذاتي في دورة: الدورات العامة حسب نافذة تسجيلها (enrollMode / enrollStart / enrollEnd)،
-    // ومواد البرنامجين لمن قيده منتظم: الأكاديمي بمطابقة الفصل term لمستواه، والإجازات بمطابقة المسار ijazaKey
+    // ومواد الإجازات لمن قيده منتظم بمسار مطابق ijazaKey.
+    // مواد البرنامج الأكاديمي لا تسجيل ذاتي فيها: يُسجَّل الطالب عن طريق القيد فقط (المشرف)
     function enrollOpen(cid) {
       let c = get(/databases/$(db)/documents/courses/$(cid)).data;
       let p = c.get('program', '');
       return (p == '' && inWindow(c, 'open'))
-        || (p == 'academy' && activeRec(p) && get(recPath(p)).data.level == c.get('term', 0))
         || (p == 'ijaza' && activeRec(p) && get(recPath(p)).data.get('track', '') == c.get('ijazaKey', ''));
     }
     match /enrollments/{id} {
       allow read: if isAdmin() || resource == null || own(resource.data);
       allow create: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.courseId && enrollOpen(request.resource.data.courseId));
-      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data) && request.resource.data.courseId == resource.data.courseId);
+      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data) && request.resource.data.courseId == resource.data.courseId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['termId', 'by']));
       allow delete: if isAdmin();
     }
     // رسائل «تواصل معنا»: يرسلها أي زائر، ويقرؤها المشرف فقط
