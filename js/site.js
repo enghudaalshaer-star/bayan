@@ -56,13 +56,17 @@ function enrollGate(es, compact) {
   const sub = es.state === 'soon' ? `${fmtDate(es.opensAt)}${es.closesAt ? ` — ويستمر حتى ${fmtDate(es.closesAt)}` : ''}` : (es.note || 'تابع الصفحة لمعرفة موعد الدفعة القادمة.');
   return `<div class="gate ${compact ? 'compact' : ''}"><strong>${ic(es.state === 'soon' ? 'calendar' : 'lock', 17)} ${head}</strong>${es.state === 'soon' && !compact ? countdownHtml(es.opensAt) : ''}<small>${esc(sub)}</small></div>`;
 }
+/* بداية الدراسة: لمواد البرنامج الأكاديمي من فصل الطالب (termId في تسجيله)، ولغيرها من الدورة نفسها */
+const enrTerm = async (c, enr) => c.program === 'academy' && enr?.termId ? await safeGet('terms', enr.termId) : null;
+const startOf = (c, tm) => tm ? +tm.startsAt || 0 : +c.startsAt || 0;
+const hasStarted = (c, tm) => { const s = startOf(c, tm); return !s || Date.now() >= s; };
 /* صفحة انتظار قبل بداية الدراسة (للدروس والاختبار) */
-function notStartedView(c) {
+function notStartedView(c, at = c.startsAt) {
   return {
     docTitle: c.title,
     html: `<section class="auth"><div class="auth-card reveal" style="text-align:center;width:min(520px,100%)">${ic('calendar', 44)}
-      <h1 style="font-size:1.6rem;margin:12px 0 6px">تبدأ الدراسة ${fmtDate(c.startsAt)}</h1><p class="muted">أنت مسجّل في «${esc(c.title)}». تُفتح الدروس تلقائياً في موعدها.</p>
-      ${countdownHtml(c.startsAt)}<a class="btn btn-primary" href="#/course/${c.id}">العودة إلى الدورة</a></div></section>`,
+      <h1 style="font-size:1.6rem;margin:12px 0 6px">تبدأ الدراسة ${fmtDate(at)}</h1><p class="muted">أنت مسجّل في «${esc(c.title)}». تُفتح الدروس تلقائياً في موعدها.</p>
+      ${countdownHtml(at)}<a class="btn btn-primary" href="#/course/${c.id}">العودة إلى الدورة</a></div></section>`,
     mount: runCountdowns
   };
 }
@@ -138,7 +142,7 @@ function footer() {
   const legacy = !st.email && !wa && st.contact; // وسيلة التواصل القديمة قبل إضافة البريد والواتساب
   return `<footer class="foot-site"><div class="wrap foot-grid">
     <div class="foot-brand"><div class="logo" style="font-size:1.3rem">${logoMark(30)}<span>${esc(st.name)}</span></div><p>${esc(st.about)}</p>${soc ? `<div class="socs">${soc}</div>` : ''}</div>
-    <nav class="foot-col" aria-label="روابط"><h4>المنصة</h4><a href="#/programs">البرامج الدراسية</a><a href="#/courses">الدورات</a><a href="#/about">عن ${esc(st.name)}</a><a href="#/verify">التحقق من شهادة</a>${st.terms ? '<a href="#/terms">الشروط والخصوصية</a>' : ''}</nav>
+    <nav class="foot-col" aria-label="روابط"><h4>المنصة</h4><a href="#/programs">البرامج الدراسية</a><a href="#/calendar">التقويم الأكاديمي</a><a href="#/courses">الدورات</a><a href="#/about">عن ${esc(st.name)}</a><a href="#/verify">التحقق من شهادة</a>${st.terms ? '<a href="#/terms">الشروط والخصوصية</a>' : ''}</nav>
     <div class="foot-col"><h4>تواصل معنا</h4>${wa ? `<a href="${waLink(wa)}" target="_blank" rel="noopener">${ic('whatsapp', 16)} <bdi dir="ltr">+${esc(wa)}</bdi></a>` : ''}${st.email ? `<a href="mailto:${esc(st.email)}">${ic('mail', 16)} <bdi dir="ltr">${esc(st.email)}</bdi></a>` : ''}${legacy ? `<span>${esc(st.contact)}</span>` : ''}<a href="#/contact">${ic('pen', 16)} أرسل رسالة</a></div>
   </div><div class="wrap foot-base"><span>© ${new Date().getFullYear()} ${esc(st.name)} — ${esc(st.tagline)}</span></div></footer>`;
 }
@@ -266,22 +270,25 @@ async function viewCourse(id) {
   const enr = isStudent ? await safeGet('enrollments', `${S.user.uid}_${id}`) : null;
   /* مواد البرنامجين: التسجيل لمن قُبل في البرنامج ومستواه مطابق، بدل نافذة تسجيل الدورة */
   const progC = isAdmProg(c.program), rec = progC && isStudent && !enr ? await safeGet('records', `${S.user.uid}_${c.program}`) : null;
+  const tm = await enrTerm(c, enr), xw = tm?.examLock ? examWindow(tm, c.id) : null;
   const lv = c.online && (enr || S.user?.isAdmin) ? (await safeGet('courseLive', id)) || {} : null, lst = lv ? liveState(lv) : null;
   const lessons = c.lessons || [], done = enr?.completed || [];
   const pct = lessons.length ? Math.round(lessons.filter(l => done.includes(l.id)).length / lessons.length * 100) : 0;
   const ex = c.exam || {}, nQ = (ex.questions || []).length;
   const totalMin = lessons.reduce((a, l) => a + (+l.duration || 0), 0);
   const cont = lessons.find(l => !done.includes(l.id)) || lessons[0];
-  const es = progC ? { open: eligibleFor(c, rec), state: 'always' } : enrollState(c), started = courseStarted(c);
+  /* البرنامج الأكاديمي: لا تسجيل ذاتي — الطالب يُسجَّل في مواد فصله تلقائياً عند قيده. الإجازات: لمن مساره مطابق */
+  const es = c.program === 'academy' ? { open: false, state: 'always' } : progC ? { open: eligibleFor(c, rec), state: 'always' } : enrollState(c), started = hasStarted(c, tm), sAt = startOf(c, tm);
   const enrollBtn = es.open ? `<button class="btn btn-brass" data-enroll>سجّل في الدورة</button>` : '';
   const liveBtn = lv ? (lst.live && liveNowUrl(lv, lst) ? `<a class="btn btn-brass btn-join" href="${esc(liveNowUrl(lv, lst))}" target="_blank" rel="noopener">${ic('video', 17)} انضم إلى اللقاء الآن</a>` : `<button class="btn btn-ghost" data-golive>${ic('video', 17)} اللقاءات المباشرة</button>`) : '';
   const cta = S.user?.isAdmin ? `<a class="btn btn-brass" href="${adminLink}#/course/${c.id}">${ic('edit', 17)} تعديل الدورة</a>`
     : enr && c.online && !lessons.length ? liveBtn.replace('btn-ghost', 'btn-brass')
-    : enr ? (started ? `<a class="btn btn-brass" href="#/learn/${c.id}/${cont?.id || ''}">${pct ? 'تابع التعلّم' : 'ابدأ الدورة'}</a>` : `<span class="pill-lite">${ic('check', 15)} أنت مسجّل — تبدأ الدراسة ${fmtDate(c.startsAt)}</span>`)
+    : enr ? (started ? `<a class="btn btn-brass" href="#/learn/${c.id}/${cont?.id || ''}">${pct ? 'تابع التعلّم' : 'ابدأ الدورة'}</a>` : `<span class="pill-lite">${ic('check', 15)} أنت مسجّل — تبدأ الدراسة ${fmtDate(sAt)}</span>`)
     : enrollBtn;
   const gate = !enr && !S.user?.isAdmin && !es.open;
   const closeNote = !enr && es.open && es.closesAt ? `<p class="enroll-note">${ic('clock', 15)} يُغلق التسجيل ${fmtDate(es.closesAt)}</p>` : '';
-  const regRow = progC ? `<li><span class="n">${ic('shield', 15)}</span><div class="t">القبول<small>لطلاب ${esc(programName(c.program))} المقبولين</small></div></li>` : es.state === 'always' ? '' : `<li><span class="n">${ic('calendar', 15)}</span><div class="t">التسجيل<small>${esc(enrollLabel(es))}</small></div></li>`;
+  const regRow = c.program === 'academy' ? `<li><span class="n">${ic('shield', 15)}</span><div class="t">التسجيل<small>${tm ? `ضمن قيدك في ${esc(tm.name)}` : 'تلقائي لطلاب البرنامج المقيّدين في فصلها'}</small></div></li>`
+    : progC ? `<li><span class="n">${ic('shield', 15)}</span><div class="t">القبول<small>لطلاب ${esc(programName(c.program))} المقبولين</small></div></li>` : es.state === 'always' ? '' : `<li><span class="n">${ic('calendar', 15)}</span><div class="t">التسجيل<small>${esc(enrollLabel(es))}</small></div></li>`;
   return {
     over: true, docTitle: c.title,
     html: `<section class="chero" style="${themeStyle(c)}"><div class="pat" style="${PAT_BG}"></div>
@@ -304,7 +311,7 @@ async function viewCourse(id) {
           <h3>تفاصيل</h3>
           <ol class="lessons" style="margin-bottom:16px">
             ${c.book ? `<li><span class="n">${ic('book', 15)}</span><div class="t">الكتاب المقرّر<small>${esc(c.book)}${c.author ? ` — ${esc(c.author)}` : ''}</small></div></li>` : ''}${c.hours ? `<li><span class="n">${ic('clock', 15)}</span><div class="t">عدد الساعات<small>${esc(c.hours)} ساعات</small></div></li>` : ''}
-            ${regRow}${c.online ? `<li><span class="n">${ic('video', 15)}</span><div class="t">لقاءات مباشرة${meetVia(c.livePlatform)}<small>${esc(c.liveSchedule || (enr ? 'الرابط في قسم اللقاءات' : 'يظهر رابط الدخول بعد التسجيل'))}</small></div></li>` : ''}${c.startsAt ? `<li><span class="n">${ic('play', 15)}</span><div class="t">بداية الدراسة<small>${fmtDate(c.startsAt)}</small></div></li>` : ''}${c.durationLabel ? `<li><span class="n">${ic('clock', 15)}</span><div class="t">مدة الدورة<small>${esc(c.durationLabel)}</small></div></li>` : ''}
+            ${regRow}${c.online ? `<li><span class="n">${ic('video', 15)}</span><div class="t">لقاءات مباشرة${meetVia(c.livePlatform)}<small>${esc(c.liveSchedule || (enr ? 'الرابط في قسم اللقاءات' : 'يظهر رابط الدخول بعد التسجيل'))}</small></div></li>` : ''}${sAt ? `<li><span class="n">${ic('play', 15)}</span><div class="t">بداية الدراسة<small>${fmtDate(sAt)}</small></div></li>` : ''}${xw ? `<li><span class="n">${ic('calendar', 15)}</span><div class="t">موعد الامتحان<small>${dateRange(xw.from, xw.to)}</small></div></li>` : ''}${c.durationLabel ? `<li><span class="n">${ic('clock', 15)}</span><div class="t">مدة الدورة<small>${esc(c.durationLabel)}</small></div></li>` : ''}
             <li><span class="n">${ic('play', 15)}</span><div class="t">الدروس<small>${lessons.length}</small></div></li>
             <li><span class="n">${ic('quiz', 15)}</span><div class="t">الاختبار النهائي<small>${nQ ? `${nQ} أسئلة — النجاح من ${ex.passScore || 60}%` : 'لا يوجد — تصدر الشهادة بإتمام الدروس'}</small></div></li>
             <li><span class="n">${ic('award', 15)}</span><div class="t">الشهادة<small>تصدر برمز تحقق عند الإتمام</small></div></li>
@@ -331,7 +338,7 @@ async function viewLearn(cid, lid) {
   const c = await safeGet('courses', cid); if (!c) return notFound('الدورة غير موجودة.');
   const enr = await safeGet('enrollments', `${S.user.uid}_${cid}`);
   if (!enr) { go(`/course/${cid}`); return null; }
-  if (!courseStarted(c)) return notStartedView(c);
+  const tm = await enrTerm(c, enr); if (!hasStarted(c, tm)) return notStartedView(c, startOf(c, tm));
   const lessons = c.lessons || []; if (!lessons.length) return notFound('لا توجد دروس في هذه الدورة بعد.');
   let done = enr.completed || [];
   const idx = Math.max(0, lessons.findIndex(l => l.id === lid)), l = lessons[idx];
@@ -396,7 +403,9 @@ async function viewExam(cid) {
   const c = await safeGet('courses', cid); const ex = c?.exam;
   if (!c || !ex?.questions?.length) return notFound('لا يوجد اختبار لهذه الدورة.');
   const enr = await safeGet('enrollments', `${S.user.uid}_${cid}`); if (!enr) { go(`/course/${cid}`); return null; }
-  if (!courseStarted(c)) return notStartedView(c);
+  const tm = await enrTerm(c, enr); if (!hasStarted(c, tm)) return notStartedView(c, startOf(c, tm));
+  /* فترة الامتحانات: إن فعّلت الإدارة القفل في الفصل، يُفتح الاختبار في موعد امتحان المادة أو فترة امتحانات الفصل فقط */
+  const xw = tm?.examLock ? examWindow(tm, cid) : null;
   const lessons = c.lessons || [], done = enr.completed || [];
   const lessonsOk = !ex.requireLessons || lessons.every(l => done.includes(l.id));
   const attempts = (await safeList('attempts', { uid: S.user.uid, courseId: cid })).sort((a, b) => b.at - a.at);
@@ -417,6 +426,9 @@ async function viewExam(cid) {
         else if (passedA) { msg = `<p class="pill ok" style="margin-bottom:12px">ناجح بدرجة ${passedA.score}%</p>`; }
         if (!lessonsOk) { can = false; msg += `<p class="form-err">أتمم جميع دروس الدورة أولاً ليُفتح الاختبار.</p>`; }
         else if (left <= 0) { can = false; msg += `<p class="form-err">استنفدت عدد المحاولات المتاحة. تواصل مع الإدارة لإعادة فتح الاختبار.</p>`; }
+        else if (xw && Date.now() < xw.from) { can = false; msg += `<p class="form-err">${ic('calendar', 15)} يُفتح الاختبار في موعد الامتحان: ${dateRange(xw.from, xw.to)}</p>`; }
+        else if (xw && Date.now() > xw.to) { can = false; msg += `<p class="form-err">انتهى موعد هذا الامتحان (${dateRange(xw.from, xw.to)}). تواصل مع الإدارة.</p>`; }
+        else if (xw) msg += `<p class="pill warn" style="margin-bottom:12px">الامتحان متاح حتى ${fmtDT(xw.to)}</p>`;
         box.innerHTML = `<div class="qcard" style="text-align:center">${ic('quiz', 44)}<h2 style="font-family:var(--display);font-size:1.8rem;margin:10px 0 6px">الاختبار النهائي</h2>
           <p class="muted">${esc(c.title)}</p>
           <ol class="lessons" style="max-width:380px;margin:20px auto;text-align:start">
@@ -764,6 +776,7 @@ async function viewPrograms() {
           <div class="pfacts dark"><span><b>2</b>سنتان</span><span><b>${rows.length}</b>مادة</span><span><b>4</b>فصول دراسية</span>${hrs ? `<span><b>${hrs}</b>ساعة أسبوعية</span>` : ''}<span><b>2</b>لغتان: العربية والإنكليزية</span></div>
           <p class="prose">${esc(st.acadIntro)}</p>
           <p class="cond">${ic('check', 17)} <span><b>شرط القبول:</b> ${esc(st.acadAdmission)}</span></p>${applyCta('academy')}
+          <p class="cond">${ic('calendar', 17)} <span>يُقيَّد المقبول في البرنامج وفي دفعة، ويُسجَّل تلقائياً في مواد الفصل الأول، وتُفتح مواد كل فصل بعد إنهاء الفصل الذي قبله. <a href="#/calendar" style="color:var(--teal);font-weight:600">التقويم الأكاديمي</a></span></p>
           ${[1, 2].map(y => `<div class="plan-year"><h3>${YEAR_NAMES[y]}</h3>${term(y * 2 - 1)}${term(y * 2)}</div>`).join('')}
         </section>
         <section class="panel reveal" id="p2">
@@ -967,33 +980,74 @@ function applyForm(p, a, me) {
     }
   };
 }
-/* زر يظهر بدل «سجّل» في مواد البرنامجين لمن لم يُقبل أو لم يصل مستواها */
+/* بوابة مواد البرنامجين لمن لم يُسجَّل فيها: القبول، حالة القيد، أو قفل الفصول التالية */
 function progGate(c, rec, compact) {
-  const pn = programName(c.program); let head, sub, btn = '';
-  if (!rec) { head = `هذه المادة لطلاب ${pn}`; sub = 'تُفتح بعد قبولك في البرنامج وتسجيلك في فصلها.'; btn = `<a class="btn btn-sm btn-brass" href="#/apply/${c.program}">قدّم على البرنامج</a>`; }
+  const pn = programName(c.program); let head, sub, btn = '', icon = 'lock';
+  if (!rec) { head = `هذه المادة لطلاب ${pn}`; sub = c.program === 'academy' ? 'تُفتح بعد قبولك وقيدك في فصلها، فتُسجَّل فيها تلقائياً.' : 'تُفتح بعد قبولك في البرنامج.'; btn = `<a class="btn btn-sm btn-brass" href="#/apply/${c.program}">قدّم على البرنامج</a>`; }
+  else if (rec.status === 'completed') { head = 'أنهيت مواد البرنامج'; sub = 'هذه المادة ليست ضمن فصولك.'; icon = 'award'; }
   else if (rec.status !== 'active') { head = 'قيدك في البرنامج غير منتظم'; sub = `حالة القيد: ${(REC_ST[rec.status] || [rec.status])[0]}. تواصل مع الإدارة.`; }
-  else if (c.program === 'academy') { head = `هذه المادة من ${termLabel(c.term) || 'فصل آخر'}`; sub = `أنت الآن في ${termLabel(rec.level)}. تُفتح مواد كل فصل حين تسجّل فيه.`; btn = `<a class="btn btn-sm btn-brass" href="#/me">ملفي الأكاديمي</a>`; }
+  else if (c.program === 'academy') {
+    btn = `<a class="btn btn-sm btn-brass" href="#/me">ملفي الأكاديمي</a>`;
+    if (+c.term > +rec.level) { head = `مقفلة — من ${termLabel(c.term) || 'فصل لاحق'}`; sub = `أنت الآن في ${termLabel(rec.level)}. تُفتح مواد كل فصل بعد إنهاء الفصل الذي قبله، فتُسجَّل فيها تلقائياً.`; }
+    else if (+c.term < +rec.level) { head = `من ${termLabel(c.term)}`; sub = 'مادة من فصل سابق لم تُسجَّل فيها — تواصل مع الإدارة إن كانت مطلوبة منك.'; icon = 'info'; }
+    else { head = 'من مواد فصلك الحالي'; sub = 'تُسجَّل فيها تلقائياً مع قيدك في الفصل الدراسي. إن لم تظهر في موادك فتواصل مع الإدارة.'; icon = 'calendar'; }
+  }
   else { head = 'هذه المادة من مسار آخر'; sub = `مسارك في البرنامج: ${trackName(rec.track) || '—'}.`; }
-  return `<div class="gate ${compact ? 'compact' : ''}"><strong>${ic('lock', 17)} ${esc(head)}</strong><small>${esc(sub)}</small>${btn}</div>`;
+  return `<div class="gate ${compact ? 'compact' : ''}"><strong>${ic(icon, 17)} ${esc(head)}</strong><small>${esc(sub)}</small>${btn}</div>`;
 }
-/* الملف الأكاديمي في «حسابي»: القيد والفصول وحالة الطلبات */
-function acadSection(apps, recs, regs, terms, courses) {
-  const st = S.settings;
+/* الخطة الدراسية للطالب: فصول منجزة، الفصل الحالي، وفصول مقفلة حتى إنهاء ما قبلها */
+function studyPlan(r, regs, courses, enrIds) {
+  const st = r.status === 'completed' ? 5 : +r.level || 1;
+  return `<div class="splan">${[1, 2, 3, 4].map(l => {
+    const cs = courses.filter(c => c.program === 'academy' && +c.term === l && c.published).sort(planSort), g = regs.filter(x => +x.level === l).sort((x, y) => y.at - x.at)[0];
+    const k = l < st ? 'done' : l === st ? 'cur' : 'lock';
+    const tag = k === 'done' ? `${ic('check', 14)} منجز${g ? ' — ' + esc(g.termName) : ''}` : k === 'cur' ? (g ? `${ic('calendar', 14)} ${esc(g.termName)}` : `${ic('clock', 14)} بانتظار القيد في فصل`) : `${ic('lock', 14)} يُفتح بعد إنهاء ${TERM_NAMES[l - 1]}`;
+    return `<details class="sp-step ${k}" ${k === 'cur' ? 'open' : ''}><summary><span class="sp-n">${l}</span><span class="grow"><b>${esc(termLabel(l))}</b><small>${tag}</small></span><small class="muted">${cs.length ? nMawad(cs.length) : ''}</small></summary>
+      ${cs.length ? `<div class="sp-courses">${cs.map(c => { const on = enrIds.has(c.id); return on ? `<a class="reg-row" href="#/course/${c.id}">${ic(c.icon || 'book', 15)}<span class="grow"><b>${esc(c.title)}</b></span>${ic('prev', 14)}</a>` : `<div class="reg-row off">${ic(k === 'lock' ? 'lock' : c.icon || 'book', 15)}<span class="grow">${esc(c.title)}</span></div>`; }).join('')}</div>` : '<p class="muted" style="margin:8px 0 0">لم تُنشر مواد هذا الفصل بعد.</p>'}
+    </details>`;
+  }).join('')}</div>`;
+}
+/* بطاقة الفصل الجاري أو القادم للطالب: مدته وفترة امتحاناته وأقرب مواعيده */
+function termCard(t, courses, mine) {
+  const now = Date.now(), ev = termEvents(t, courses).filter(e => (e.to || e.from) >= now - 86400000 && (e.kind !== 'exam' || !e.courseId || mine.has(e.courseId))).slice(0, 4);
+  return `<div class="term-cta"><div class="grow"><b>${ic('calendar', 16)} ${esc(t.name)} ${termPhasePill(t)}</b><small>${dateRange(t.startsAt, t.endsAt)}${+t.examStart ? ` · الامتحانات: ${dateRange(t.examStart, t.examEnd)}` : ''}</small>
+    ${ev.length ? `<div class="mini-cal">${ev.map(e => `<span>${ic(e.ic, 13)} ${esc(e.course ? e.course : e.title)} — ${dateRange(e.from, e.to)}</span>`).join('')}</div>` : ''}</div>
+    <a class="btn btn-ghost btn-sm" style="color:#fff;border-color:rgba(255,255,255,.35)" href="#/calendar">التقويم الأكاديمي</a></div>`;
+}
+/* الملف الأكاديمي في «حسابي»: القيد والدفعة والخطة الدراسية وحالة الطلبات */
+function acadSection(apps, recs, regs, terms, courses, enr) {
+  const st = S.settings, enrIds = new Set(enr.map(e => e.courseId));
   if (!apps.length && !recs.length) return `<div class="acad-invite reveal">${ic('award', 28)}<div class="grow"><h3>انضم إلى أحد برنامجي ${esc(st.name)}</h3><p class="muted">${esc(st.accredit)}</p></div><a class="btn btn-brass" href="#/apply">قدّم الآن</a></div>`;
   const recCard = r => {
-    const my = regs.filter(g => g.program === r.program).sort((x, y) => y.at - x.at);
-    const open = r.program === 'academy' && r.status === 'active' ? terms.filter(t => enrollState(t).open && !my.some(g => g.termId === t.id)).sort((x, y) => (+x.startsAt || 0) - (+y.startsAt || 0))[0] : null;
-    const lc = open ? levelCourses(courses, r.level) : [];
+    const my = regs.filter(g => g.program === r.program);
+    const cur = r.program === 'academy' ? my.map(g => terms.find(t => t.id === g.termId)).filter(t => t && !t.closedAt).sort(termSort)[0] : null;
     const ijc = r.program === 'ijaza' ? courses.filter(c => eligibleFor(c, r) && c.published) : [];
-    return `<div class="acad reveal"><div class="acad-h"><div class="grow"><span class="prog-n">${esc(programName(r.program))}</span><h3>${esc(recLevel(r))}</h3></div>${stPill(REC_ST, r.status)}</div>
-      <dl class="facts"><div><dt>الرقم الجامعي</dt><dd dir="ltr">${esc(r.studentNo || '—')}</dd></div>${r.cohort ? `<div><dt>الدفعة</dt><dd>${esc(r.cohort)}</dd></div>` : ''}<div><dt>تاريخ القبول</dt><dd>${fmtDate(r.admittedAt)}</dd></div></dl>
-      ${open ? `<div class="term-cta"><div class="grow"><b>${ic('calendar', 16)} التسجيل مفتوح في ${esc(open.name)}</b><small>${lc.length ? `${nMawad(lc.length)} من ${esc(termLabel(r.level))}: ${esc(lc.map(c => c.title).join('، '))}` : 'لم تُنشر مواد هذا الفصل بعد، ويمكنك التسجيل الآن وتُضاف موادك عند نشرها.'}${enrollState(open).closesAt ? ` — حتى ${fmtDate(enrollState(open).closesAt)}` : ''}</small></div><button class="btn btn-brass" data-regterm="${open.id}">سجّل في الفصل</button></div>` : ''}
-      ${my.length ? `<div class="regs"><h4>فصولي</h4>${my.map(g => `<div class="reg-row">${ic('check', 15)}<span class="grow"><b>${esc(g.termName)}</b> — ${esc(termLabel(g.level))}</span><small>${nMawad((g.courseIds || []).length)}</small></div>`).join('')}</div>` : r.program === 'academy' && !open && r.status === 'active' ? `<p class="muted" style="margin:12px 0 0">يُفتح التسجيل في الفصل الدراسي من الإدارة، وسيظهر لك هنا.</p>` : ''}
+    return `<div class="acad reveal ${r.program === 'academy' ? 'wide' : ''}"><div class="acad-h"><div class="grow"><span class="prog-n">${esc(programName(r.program))}</span><h3>${esc(r.status === 'completed' ? 'أنهى مواد البرنامج' : recLevel(r))}</h3></div>${stPill(REC_ST, r.status)}</div>
+      <dl class="facts"><div><dt>الرقم الجامعي</dt><dd dir="ltr">${esc(r.studentNo || '—')}</dd></div><div><dt>الدفعة</dt><dd>${esc(r.cohort || '—')}</dd></div><div><dt>تاريخ القبول</dt><dd>${fmtDate(r.admittedAt)}</dd></div></dl>
+      ${cur ? termCard(cur, courses, enrIds) : r.program === 'academy' && r.status === 'active' ? `<p class="muted" style="margin:14px 0 0">${ic('clock', 15)} تُقيَّد في فصلك الدراسي من الإدارة، فتُسجَّل في مواده تلقائياً وتظهر هنا.</p>` : ''}
+      ${r.program === 'academy' ? `<h4 class="sp-h">خطتي الدراسية</h4>${studyPlan(r, my, courses, enrIds)}` : ''}
       ${ijc.length ? `<div class="regs"><h4>موادي في البرنامج</h4>${ijc.map(c => `<a class="reg-row" href="#/course/${c.id}">${ic(c.icon || 'book', 15)}<span class="grow"><b>${esc(c.title)}</b></span>${ic('prev', 14)}</a>`).join('')}</div>` : ''}
     </div>`;
   };
   const pending = apps.filter(a => !recs.some(r => r.program === a.program));
   return `<div class="acads">${recs.map(recCard).join('')}${pending.map(a => `<a class="acad acad-app reveal" href="#/apply/${a.program}"><div class="acad-h"><div class="grow"><span class="prog-n">طلب الالتحاق</span><h3>${esc(programName(a.program))}</h3></div>${stPill(APP_ST, a.status)}</div><small class="muted">${a.status === 'incomplete' ? 'طلبت الإدارة استكمال طلبك — اضغط للاستكمال.' : `أُرسل في ${fmtDate(a.submittedAt)} — اضغط لمتابعة حالته.`}</small></a>`).join('')}</div>`;
+}
+
+/* ================= التقويم الأكاديمي (عام) ================= */
+async function viewCalendar() {
+  const [terms, courses] = await Promise.all([safeList('terms'), safeList('courses')]);
+  const list = terms.filter(t => (t.program || 'academy') === 'academy').sort(termSort), now = Date.now();
+  const cur = list.find(t => !t.closedAt && (!+t.endsAt || now <= +t.endsAt));
+  const card = t => { const ev = termEvents(t, courses.filter(c => c.published)), k = termPhaseKey(t);
+    return `<section class="panel reveal cal-term ${t === cur ? 'now' : ''} ${k === 'closed' ? 'past' : ''}" id="t-${t.id}"><div class="acad-h"><div class="grow"><span class="prog-n">${t === cur ? 'الفصل الحالي' : k === 'upcoming' ? 'فصل قادم' : 'فصل سابق'}</span><h2>${esc(t.name)}</h2></div>${termPhasePill(t)}</div>
+      <dl class="facts"><div><dt>بداية الدراسة</dt><dd>${fmtDate(t.startsAt)}</dd></div><div><dt>نهاية الفصل</dt><dd>${fmtDate(t.endsAt)}</dd></div><div><dt>الامتحانات النهائية</dt><dd>${+t.examStart ? dateRange(t.examStart, t.examEnd) : 'تُعلن لاحقاً'}</dd></div></dl>
+      ${ev.length ? `<div class="cal-list" style="margin-top:16px">${ev.map(e => `<div class="cal-ev k-${e.kind} ${(e.to || e.from) < now ? 'gone' : ''}">${ic(e.ic, 16)}<span class="grow"><b>${esc(e.kind === 'exam' && e.course ? 'امتحان ' + e.course : e.title)}</b>${e.kind === 'exam' && e.course && e.title && e.title !== 'امتحان' ? `<small>${esc(e.title)}</small>` : ''}</span><small>${dateRange(e.from, e.to)}</small></div>`).join('')}</div>` : ''}</section>`; };
+  return {
+    over: true, docTitle: 'التقويم الأكاديمي',
+    html: `${pageHead('التقويم الأكاديمي', programName('academy'))}<div class="wrap progs-page" style="max-width:860px">
+      ${list.length ? list.map(card).join('') : `<div class="empty">${ic('calendar', 36)}<p>لم يُعلن التقويم الأكاديمي بعد.</p></div>`}</div>`,
+    mount() { cur && setTimeout(() => document.getElementById('t-' + cur.id)?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' }), 80); }
+  };
 }
 
 /* ================= حساب الطالب ================= */
@@ -1011,7 +1065,7 @@ async function viewMe() {
     docTitle: 'حسابي',
     html: `<div class="wrap"><div class="me-head reveal"><p class="muted">${h < 12 ? 'صباح الخير' : 'مساء الخير'}</p><h1>${esc(S.user.name)}</h1>
       <div class="hero-cta" style="margin-top:14px"><a class="btn btn-primary" href="#/courses">${ic('plus', 17)} دورة جديدة</a><button class="btn btn-ghost" data-act="logout">${ic('logout', 17)} تسجيل الخروج</button></div></div>
-      <h2 style="margin-bottom:18px">ملفي الأكاديمي</h2>${acadSection(apps, recs, regs, terms.filter(t => (t.program || 'academy') === 'academy'), courses)}
+      <h2 style="margin-bottom:18px">ملفي الأكاديمي</h2>${acadSection(apps, recs, regs, terms.filter(t => (t.program || 'academy') === 'academy'), courses, enr)}
       <div class="stats reveal" style="margin:40px 0"><div class="stat"><b data-count="${mine.length}">0</b><span>دورة مسجّلة</span></div><div class="stat"><b data-count="${mine.filter(m => m.pct === 100).length}">0</b><span>دورة مكتملة الدروس</span></div><div class="stat"><b data-count="${certs.length}">0</b><span>شهادة</span></div><div class="stat"><b data-count="${att.length}">0</b><span>محاولة اختبار</span></div></div>
       ${lives.length ? `<h2 style="margin-bottom:18px">لقاءاتي المباشرة</h2><div class="live-list reveal" style="margin-bottom:40px">${lives.map(x => `<div class="chan live-row ${x.on ? 'on' : ''}">${meetBadge(x.p)}<span class="grow"><a href="#/course/${x.c.id}"><strong>${esc(x.c.title)}</strong></a><small>${x.on ? `<b class="live-tag"><span class="dot" aria-hidden="true"></span> جارٍ الآن</b> ${esc(x.s.title)}` : x.s ? `${fmtSess(x.s)} — ${esc(x.s.title)}` : esc(x.c.liveSchedule || 'رابط ثابت للقاءات')}</small></span>${x.url ? `<a class="btn btn-sm ${x.on ? 'btn-brass' : 'btn-ghost'}" href="${esc(x.url)}" target="_blank" rel="noopener">${ic('video', 15)} ${x.on ? 'انضم الآن' : 'الرابط'}</a>` : ''}</div>`).join('')}</div>` : ''}
       <h2 style="margin-bottom:18px">دوراتي</h2>
@@ -1019,17 +1073,6 @@ async function viewMe() {
       <h2 style="margin:46px 0 18px">شهاداتي</h2>
       ${certs.length ? `<div style="display:grid;gap:10px;margin-bottom:70px">${certs.map(ct => `<a class="cert-row reveal" href="#/cert/${ct.id}">${ic('award', 28)}<div style="flex:1"><strong>${esc(ct.courseTitle)}</strong><br><small class="muted">${fmtDate(ct.issuedAt)}${ct.score != null ? ` — ${ct.score}%` : ''}</small></div><small dir="ltr" class="muted">${esc(ct.id)}</small></a>`).join('')}</div>` : `<div class="empty" style="margin-bottom:70px">${ic('award', 36)}<p>تظهر شهاداتك هنا عند إتمام الدورات واجتياز اختباراتها.</p></div>`}
     </div>`,
-    mount() {
-      $$('[data-regterm]').forEach(b => b.onclick = async () => {
-        const t = terms.find(x => x.id === b.dataset.regterm), r = recs.find(x => x.program === 'academy');
-        if (!t || !r) return;
-        const lc = levelCourses(courses, r.level);
-        if (!(await confirmBox(`التسجيل في «${esc(t.name)}» — ${esc(termLabel(r.level))}${lc.length ? `، وتُفتح لك ${nMawad(lc.length)}` : ''}؟`, 'سجّلني'))) return;
-        b.disabled = true;
-        try { await registerInTerm(r, t, courses, 'self'); toast(`سُجّلت في ${t.name}`, 'ok'); route(); }
-        catch (e) { toast(/permission|insufficient/i.test(e.message) ? 'التسجيل في هذا الفصل مغلق، أو لا يطابق مستواك — تواصل مع الإدارة' : e.message, 'err'); b.disabled = false; }
-      });
-    }
   };
 }
 
@@ -1042,7 +1085,7 @@ const APP = {
     [/^\/learn\/([^/]+)(?:\/([^/]*))?$/, viewLearn, 'student'], [/^\/exam\/([^/]+)$/, viewExam, 'student'],
     [/^\/apply(?:\/([^/]+))?$/, viewApply], [/^\/login$/, viewLogin], [/^\/register$/, viewRegister], [/^\/me$/, viewMe, 'student'],
     [/^\/cert\/([^/]+)(?:\/(ar|en))?$/, viewCert], [/^\/verify$/, viewVerify],
-    [/^\/about$/, viewAbout], [/^\/contact$/, viewContact], [/^\/terms$/, viewTerms]
+    [/^\/calendar$/, viewCalendar], [/^\/about$/, viewAbout], [/^\/contact$/, viewContact], [/^\/terms$/, viewTerms]
   ],
   guard(g, path) {
     if (g !== 'student' || (S.user && !S.user.isAdmin)) return false;

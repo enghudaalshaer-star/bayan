@@ -235,20 +235,60 @@ const recLevel = r => r.program === 'academy' ? termLabel(r.level) || '—' : tr
 const eligibleFor = (c, r) => !!r && r.status === 'active' && r.program === c.program && (c.program === 'academy' ? +c.term === +r.level : (r.track || '') === (c.ijazaKey || ''));
 /* مواد مستوى معيّن في البرنامج الأكاديمي (المنشورة فقط) */
 const levelCourses = (courses, level) => courses.filter(c => c.program === 'academy' && +c.term === +level && c.published).sort(planSort);
-/* known: مجموعة معرّفات تسجيلات محمّلة مسبقاً (للتسجيل الجماعي من الإدارة) بدل قراءة كل تسجيل */
-async function enrollIn(r, c, known) {
+/* known: مجموعة معرّفات تسجيلات محمّلة مسبقاً (للتسجيل الجماعي من الإدارة) بدل قراءة كل تسجيل.
+   termId: الفصل الذي تُدرس فيه المادة — تُفتح دروسها ببدايته واختبارها في فترة امتحاناته. */
+async function enrollIn(r, c, known, termId) {
   const id = `${r.uid}_${c.id}`;
-  if (known ? known.has(id) : await safeGet('enrollments', id)) return false;
-  await DB.set('enrollments', id, { uid: r.uid, courseId: c.id, userName: r.name, courseTitle: c.title, completed: [], enrolledAt: Date.now() });
+  if (known ? known.has(id) : await safeGet('enrollments', id)) { if (termId) await DB.update('enrollments', id, { termId }).catch(() => {}); return false; }
+  await DB.set('enrollments', id, { uid: r.uid, courseId: c.id, userName: r.name, courseTitle: c.title, completed: [], enrolledAt: Date.now(), termId: termId || '', by: 'record' });
   known?.add(id); return true;
 }
-/* تسجيل الطالب في فصل: مستند regs ثم تسجيل مواد مستواه. by: self | admin */
-async function registerInTerm(r, term, courses, by = 'self', known) {
+/* قيد الطالب في فصل: مستند regs ثم تسجيل مواد مستواه تلقائياً. لا تسجيل ذاتي: by = admin | accept | promote */
+async function registerInTerm(r, term, courses, by = 'admin', known) {
   const list = levelCourses(courses, r.level), id = `${r.uid}_${term.id}`;
-  const reg = { uid: r.uid, termId: term.id, termName: term.name, program: 'academy', level: +r.level, name: r.name, studentNo: r.studentNo || '', courseIds: list.map(c => c.id), at: Date.now(), by };
+  const reg = { uid: r.uid, termId: term.id, termName: term.name, program: 'academy', level: +r.level, cohort: r.cohort || '', name: r.name, studentNo: r.studentNo || '', courseIds: list.map(c => c.id), at: Date.now(), by };
   await DB.set('regs', id, reg);
-  for (const c of list) await enrollIn(r, c, known);
+  for (const c of list) await enrollIn(r, c, known, term.id);
   return { id, ...reg };
+}
+
+/* ================= التقويم الأكاديمي =================
+   terms/{id}: name, startsAt, endsAt (مدة الفصل)، examStart, examEnd (فترة الامتحانات النهائية)،
+   examLock (الاختبار النهائي لمواد الفصل يُفتح في فترة الامتحانات فقط)، closedAt (أُنهي الفصل ورُفّع طلابه)،
+   events[]: {id, kind, title, from, to?, courseId?} — امتحان مادة بعينها، عطلة، موعد… */
+const EVENT_KINDS = [['exam', 'امتحان', 'quiz'], ['holiday', 'عطلة', 'sun'], ['deadline', 'موعد نهائي', 'clock'], ['other', 'حدث', 'info']];
+const eventKind = k => EVENT_KINDS.find(x => x[0] === k) || EVENT_KINDS[3];
+const TERM_PH = { upcoming: ['لم يبدأ', 'mut'], running: ['جارٍ', 'ok'], exams: ['فترة الامتحانات', 'warn'], ended: ['انتهى — بانتظار الإنهاء', 'warn'], closed: ['منتهٍ', 'mut'] };
+function termPhaseKey(t, now = Date.now()) {
+  if (t.closedAt) return 'closed';
+  if (+t.startsAt && now < +t.startsAt) return 'upcoming';
+  if (+t.endsAt && now > +t.endsAt) return 'ended';
+  if (+t.examStart && now >= +t.examStart && (!+t.examEnd || now <= +t.examEnd)) return 'exams';
+  return 'running';
+}
+const termPhasePill = t => stPill(TERM_PH, termPhaseKey(t));
+const termSort = (a, b) => (+a.startsAt || 0) - (+b.startsAt || 0);
+/* الفصول الصالحة لقيد الطلاب الآن: لم تُنهَ ولم تنتهِ مدتها، بالترتيب الزمني */
+const openTerms = (terms, now = Date.now()) => terms.filter(t => !t.closedAt && (!+t.endsAt || now <= +t.endsAt)).sort(termSort);
+/* الفصل التالي لفصل معيّن (يُرفَّع إليه الطلاب عند إنهائه) */
+const nextTermOf = (terms, t) => terms.filter(x => x.id !== t.id && !x.closedAt && (+x.startsAt || 0) > (+t.startsAt || 0)).sort(termSort)[0];
+const dateRange = (a, b) => !+a ? '—' : +b && toDateInput(a) !== toDateInput(b) ? `${fmtDate(a)} — ${fmtDate(b)}` : fmtDate(a);
+/* مواعيد الفصل مرتّبة زمنياً للعرض: بداية، أحداث، امتحانات، نهاية */
+function termEvents(t, courses = []) {
+  const cm = Object.fromEntries(courses.map(c => [c.id, c])), out = [];
+  if (+t.startsAt) out.push({ kind: 'start', ic: 'play', title: 'بداية الدراسة', from: +t.startsAt });
+  for (const e of t.events || []) { const k = eventKind(e.kind); out.push({ ...e, ic: k[2], title: e.title || k[1], course: cm[e.courseId]?.title || '' }); }
+  if (+t.examStart) out.push({ kind: 'exams', ic: 'quiz', title: 'الامتحانات النهائية', from: +t.examStart, to: +t.examEnd });
+  if (+t.endsAt) out.push({ kind: 'end', ic: 'check', title: 'نهاية الفصل', from: +t.endsAt });
+  return out.sort((a, b) => a.from - b.from);
+}
+/* نافذة الاختبار النهائي لمادة في فصلها: امتحان المادة المحدد في الأحداث، وإلا فترة امتحانات الفصل */
+function examWindow(t, courseId) {
+  if (!t) return null;
+  const e = (t.events || []).find(x => x.kind === 'exam' && x.courseId === courseId);
+  if (e) return { from: +e.from, to: +e.to || (+e.from + 86399000), own: true };
+  if (+t.examStart) return { from: +t.examStart, to: +t.examEnd || (+t.examStart + 86399000) };
+  return null;
 }
 /* الرقم الجامعي: سنتان من السنة + 1 أكاديمي / 2 إجازات + تسلسل من 4 أرقام، مثل 2610007 (للمشرف فقط) */
 async function nextStudentNo(p) {
