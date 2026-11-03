@@ -4,6 +4,16 @@ service cloud.firestore {
     function signedIn() { return request.auth != null; }
     function isAdmin() { return signedIn() && exists(/databases/$(db)/documents/admins/$(request.auth.uid)); }
     function own(d) { return signedIn() && d.uid == request.auth.uid; }
+    // قراءة مستند الطالب نفسه (resource == null يسمح بالسؤال عن مستند غير موجود)
+    function ownRead() { return isAdmin() || resource == null || own(resource.data); }
+    // نافذة زمنية بصيغة الدورة: enrollMode (open | window | closed) و enrollStart و enrollEnd
+    function inWindow(w, def) {
+      let m = w.get('enrollMode', def);
+      let t = request.time.toMillis();
+      return m == 'open' || (m == 'window' && t >= w.get('enrollStart', 0) && (w.get('enrollEnd', 0) == 0 || t <= w.get('enrollEnd', 0)));
+    }
+    function recPath(p) { return /databases/$(db)/documents/records/$(request.auth.uid + '_' + p); }
+    function activeRec(p) { return exists(recPath(p)) && get(recPath(p)).data.status == 'active'; }
 
     match /settings/{id}     { allow read: if true; allow write: if isAdmin(); }
     match /courses/{id}      { allow read: if true; allow write: if isAdmin(); }
@@ -26,12 +36,53 @@ service cloud.firestore {
       allow update: if isAdmin() || (signedIn() && request.auth.uid == uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['disabled','username']));
       allow delete: if isAdmin();
     }
-    // التسجيل الذاتي مسموح فقط حين يكون تسجيل الدورة مفتوحاً (enrollMode / enrollStart / enrollEnd)
+
+    // ===== القبول والقيد =====
+    // طلب الالتحاق {uid}_{program}: الطالب يرسله خلال فترة القبول، ويعدّله أو يسحبه قبل القرار، ويستكمله إذا طُلب منه. القرار للمشرف.
+    function appKeys() { return ['uid','program','track','userName','username','name','nameEn','birthDate','gender','nationality','country','city','phone','email','qual','qualSpec','qualYear','qualFrom','arabic','quranAmt','priorIjaza','motivation','heard','pledge','hasFile','status','submittedAt','updatedAt']; }
+    function admOpen(p) { return inWindow(get(/databases/$(db)/documents/settings/main).data.get('adm', {}).get(p, {}), 'open'); }
+    match /applications/{id} {
+      allow read: if ownRead();
+      allow create: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.program
+        && request.resource.data.program in ['academy', 'ijaza'] && request.resource.data.status == 'submitted'
+        && request.resource.data.keys().hasOnly(appKeys()) && admOpen(request.resource.data.program));
+      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data)
+        && request.resource.data.program == resource.data.program
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(appKeys())
+        && ((resource.data.status in ['submitted', 'incomplete'] && request.resource.data.status in ['submitted', 'withdrawn'])
+          || (resource.data.status == 'withdrawn' && request.resource.data.status == 'submitted' && admOpen(resource.data.program))));
+      allow delete: if isAdmin();
+    }
+    // صورة المؤهل المرفقة بالطلب (JPEG مضغوطة بصيغة dataURL)
+    match /appFiles/{id} {
+      allow read: if ownRead();
+      allow create, update: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.program
+        && request.resource.data.keys().hasOnly(['uid','program','data','name','at']) && request.resource.data.data is string && request.resource.data.data.size() < 1000000);
+      allow delete: if isAdmin();
+    }
+    // القيد في البرنامج بعد القبول (الرقم الجامعي، المستوى، المسار، الحالة): يكتبه المشرف فقط
+    match /records/{id}  { allow read: if ownRead(); allow write: if isAdmin(); }
+    match /counters/{id} { allow read, write: if isAdmin(); }
+    // الفصول الدراسية: يقرؤها الجميع، ويكتبها المشرف
+    match /terms/{id}    { allow read: if true; allow write: if isAdmin(); }
+    // تسجيل الطالب في فصل {uid}_{termId}: بنفسه حين يكون تسجيل الفصل مفتوحاً، وبمستواه الحالي في قيده المنتظم
+    match /regs/{id} {
+      allow read: if ownRead();
+      allow create: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.termId
+        && request.resource.data.program == 'academy'
+        && inWindow(get(/databases/$(db)/documents/terms/$(request.resource.data.termId)).data, 'closed')
+        && activeRec('academy') && get(recPath('academy')).data.level == request.resource.data.level);
+      allow update, delete: if isAdmin();
+    }
+
+    // التسجيل الذاتي في دورة: الدورات العامة حسب نافذة تسجيلها (enrollMode / enrollStart / enrollEnd)،
+    // ومواد البرنامجين لمن قيده منتظم: الأكاديمي بمطابقة الفصل term لمستواه، والإجازات بمطابقة المسار ijazaKey
     function enrollOpen(cid) {
       let c = get(/databases/$(db)/documents/courses/$(cid)).data;
-      let m = c.get('enrollMode', 'open');
-      let t = request.time.toMillis();
-      return m == 'open' || (m == 'window' && t >= c.get('enrollStart', 0) && (c.get('enrollEnd', 0) == 0 || t <= c.get('enrollEnd', 0)));
+      let p = c.get('program', '');
+      return (p == '' && inWindow(c, 'open'))
+        || (p == 'academy' && activeRec(p) && get(recPath(p)).data.level == c.get('term', 0))
+        || (p == 'ijaza' && activeRec(p) && get(recPath(p)).data.get('track', '') == c.get('ijazaKey', ''));
     }
     match /enrollments/{id} {
       allow read: if isAdmin() || resource == null || own(resource.data);
