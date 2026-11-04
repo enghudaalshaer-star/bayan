@@ -1,8 +1,8 @@
 'use strict';
-/* بيان — لوحة التحكم (admin.html). منفصلة عن الموقع بجلسة دخول مستقلة. يعتمد على core.js */
+/* بيان — لوحة التحكم (رابطها الخاص، لا يظهر في الموقع). منفصلة عن الموقع بجلسة دخول مستقلة. يعتمد على core.js */
 S.scope = 'admin';
 function adminShell(active, title, html, actions = '') {
-  const items = [['', 'لوحة المؤشرات', 'chart'], ['courses', 'الدورات', 'book'], ['admissions', 'القبول', 'file'], ['registry', 'القيد والفصول', 'calendar'], ['students', 'الطلاب', 'users'], ['results', 'الامتحانات والنتائج', 'quiz'], ['certs', 'الشهادات', 'award'], ['messages', 'الرسائل', 'inbox'], ['settings', 'الإعدادات', 'settings']];
+  const items = [['', 'لوحة المؤشرات', 'chart'], ['courses', 'الدورات', 'book'], ['admissions', 'القبول', 'file'], ['registry', 'القيد والفصول', 'calendar'], ['students', 'الطلاب', 'users'], ['results', 'الامتحانات والنتائج', 'quiz'], ['certs', 'الشهادات', 'award'], ['messages', 'الرسائل', 'inbox'], ['faq', 'الأسئلة الشائعة', 'help'], ['settings', 'الإعدادات', 'settings']];
   return `<div class="admin"><aside class="side" id="side">
     <a class="logo" href="#/">${logoMark()}<span>${esc(S.settings.name)}</span><em>إدارة</em></a>
     <nav>${items.map(([k, t, i]) => `<a class="side-link ${active === k ? 'on' : ''}" href="#/${k}">${ic(i, 19)} ${t}${k === 'messages' ? `<span class="side-badge" id="unread" ${S.unread ? '' : 'hidden'}>${S.unread || ''}</span>` : k === 'admissions' ? `<span class="side-badge" id="newapps" ${S.newApps ? '' : 'hidden'}>${S.newApps || ''}</span>` : ''}</a>`).join('')}</nav>
@@ -28,7 +28,7 @@ async function adminDash() {
   /* أوراق امتحانات بانتظار التصحيح: سُلّمت (أو انتهى وقتها) ولم تُصحَّح، أو فيها أسئلة مقالية لم تُصحَّح */
   const xm = Object.fromEntries(d.exams.map(e => [e.id, e])), gk = new Set(d.grades.map(g => g.id));
   const toGrade = d.sittings.filter(s => xm[s.examId] && gradable(xm[s.examId], s) && !gk.has(s.id)).length + d.grades.filter(g => g.pending > 0).length;
-  const upEx = d.exams.filter(e => e.published && e.kind !== 'oral' && examPhase(e) !== 'closed' && +e.opensAt).sort(examSort).slice(0, 5);
+  const upEx = d.exams.filter(e => e.published && examPhase(e) !== 'closed' && +e.opensAt).sort(examSort).slice(0, 5);
   return {
     active: '', title: 'لوحة المؤشرات',
     html: `<div class="kpis">${kpi('file', d.applications.filter(a => ['submitted', 'review'].includes(a.status)).length, 'طلب التحاق بانتظار القرار')}${kpi('shield', d.records.filter(r => r.status === 'active').length, 'طالب منتظم في البرامج')}${kpi('users', d.users.length, 'حساب طالب')}${kpi('book', d.courses.filter(c => c.published).length, `دورة منشورة من ${d.courses.length}`)}${kpi('play', d.enrollments.length, 'تسجيل في الدورات')}${kpi('award', d.certificates.length, 'شهادة صادرة')}${kpi('pen', toGrade, 'ورقة امتحان بانتظار التصحيح')}${kpi('chart', avg, 'متوسط درجات الاختبارات', '%')}${kpi('check', passRate, 'نسبة النجاح', '%')}</div>
@@ -55,8 +55,8 @@ async function adminCourses() {
         <td><div class="acts"><a class="icon-btn sm" href="index.html#/course/${c.id}" target="_blank" title="عرض">${ic('eye', 16)}</a><a class="icon-btn sm" href="#/course/${c.id}" title="تعديل">${ic('edit', 16)}</a><button class="icon-btn sm danger" data-del="${c.id}" title="حذف">${ic('trash', 16)}</button></div></td></tr>`).join('')}
       </tbody></table></div>` : `<div class="empty">${ic('book', 36)}<p>لا توجد دورات بعد. أنشئ أول دورة، أو أضف بيانات تجريبية من الإعدادات.</p></div>`,
     mount() {
-      $('#newC').onclick = () => modal('دورة جديدة', `<label>عنوان الدورة<input name="title" required></label><label>التصنيف<input name="category" list="cats" required><datalist id="cats">${CATS.map(c => `<option value="${c}">`).join('')}</datalist></label>`, {
-        submitText: 'إنشاء ومتابعة', onSubmit: async fd => { const id = genId(); await DB.set('courses', id, { title: fd.get('title').trim(), category: fd.get('category').trim(), level: 'مبتدئ', theme: 'teal', icon: 'book', summary: '', description: '', instructor: '', published: false, lessons: [], exam: DEFAULT_EXAM(), createdAt: Date.now() }); go('/course/' + id); }
+      $('#newC').onclick = () => modal('دورة جديدة', `<label>عنوان الدورة<input name="title" required></label><label>التصنيف${catSelect('category')}</label>`, {
+        submitText: 'إنشاء ومتابعة', onOpen: wireCats, onSubmit: async fd => { const id = genId(); await DB.set('courses', id, { title: fd.get('title').trim(), category: await readCat(fd, 'category'), level: 'مبتدئ', theme: 'teal', icon: 'book', summary: '', description: '', instructor: '', published: false, lessons: [], exam: DEFAULT_EXAM(), createdAt: Date.now() }); go('/course/' + id); }
       });
       $('#impPlan') && ($('#impPlan').onclick = async () => {
         if (!(await confirmBox(`ستُنشأ ${missing.length} مادة من الخطة الدراسية (البرنامج الأكاديمي وبرنامج الإجازات) كمسودات، مع الكتاب المقرّر والمؤلف وعدد الساعات. المواد الموجودة بنفس الاسم لن تتكرر. أضف الدروس والاختبار لكل مادة ثم انشرها.`, 'استيراد'))) return;
@@ -81,7 +81,7 @@ async function adminCourse(id) {
   return {
     active: 'courses', title: esc(c.title),
     actions: `<a class="btn btn-ghost btn-sm" href="#/courses">${ic('prev', 16)} الدورات</a><a class="btn btn-ghost btn-sm" href="index.html#/course/${c.id}" target="_blank">${ic('eye', 16)} معاينة</a>`,
-    html: `<div class="tabs" role="tablist"><button class="tab on" data-t="info">بيانات الدورة</button><button class="tab" data-t="lessons">الدروس <span class="pill mut" id="lc">${c.lessons.length}</span></button><button class="tab" data-t="offx">${ic('shield', 15)} الامتحانات الرسمية <span class="pill ${offx0.length ? 'ok' : 'mut'}" id="xc">${offx0.length}</span></button><button class="tab" data-t="exam">اختبار ذاتي <span class="pill mut" id="qc">${c.exam.questions.length}</span></button><button class="tab" data-t="live">${ic('video', 15)} اللقاءات المباشرة <span class="pill ${c.online ? 'ok' : 'mut'}" id="lvc">${c.online ? (lv.sessions || []).length : 'معطّلة'}</span></button></div>
+    html: `<div class="tabs" role="tablist"><button class="tab on" data-t="info">بيانات الدورة</button><button class="tab" data-t="lessons">الدروس <span class="pill mut" id="lc">${c.lessons.length}</span></button><button class="tab" data-t="lib">${ic('clip', 15)} المكتبة <span class="pill ${(c.attachments || []).length ? 'ok' : 'mut'}" id="ac">${(c.attachments || []).length}</span></button><button class="tab" data-t="offx">${ic('shield', 15)} الامتحانات الرسمية <span class="pill ${offx0.length ? 'ok' : 'mut'}" id="xc">${offx0.length}</span></button><button class="tab" data-t="exam">اختبار ذاتي <span class="pill mut" id="qc">${c.exam.questions.length}</span></button><button class="tab" data-t="live">${ic('video', 15)} اللقاءات المباشرة <span class="pill ${c.online ? 'ok' : 'mut'}" id="lvc">${c.online ? (lv.sessions || []).length : 'معطّلة'}</span></button></div>
       <div id="pane"></div>`,
     mount() {
       const pane = $('#pane'); let tab = new URLSearchParams(location.hash.split('?')[1] || '').get('t') || 'info';
@@ -90,7 +90,54 @@ async function adminCourse(id) {
       $$('.tab').forEach(t => t.onclick = () => { tab = t.dataset.t; $$('.tab').forEach(x => x.classList.toggle('on', x === t)); draw(); });
       const counts = () => { $('#lc').textContent = c.lessons.length; $('#qc').textContent = c.exam.questions.length; };
       const offx = () => offExamsPane(c, pane, n => { const p = $('#xc'); p.textContent = n; p.className = 'pill ' + (n ? 'ok' : 'mut'); }).catch(err => { pane.innerHTML = `<div class="empty">${esc(err.message)}</div>`; });
-      const draw = () => { pane.onclick = null; ({ info, lessons, exam, live, offx })[tab](); };
+      const draw = () => { pane.onclick = null; ({ info, lessons, exam, live, offx, lib })[tab](); };
+      /* ===== تبويب المكتبة: مرفقات الدورة والدروس (PDF، Excel، Word، ملف، صورة، صوت، فيديو) ===== */
+      c.attachments = c.attachments || [];
+      const attCount = () => { const p = $('#ac'); p.textContent = c.attachments.length; p.className = 'pill ' + (c.attachments.length ? 'ok' : 'mut'); };
+      const lessonName = id => (c.lessons.find(l => l.id === id) || {}).title || '';
+      const attForm = (a = {}) => `<div class="choice" role="radiogroup"><label><input type="radio" name="src" value="file" ${a.id && !a.path && !a.url?.startsWith('data:') ? '' : 'checked'}> ${ic('upload', 15)} رفع ملف</label><label><input type="radio" name="src" value="url" ${a.id && !a.path && !a.url?.startsWith('data:') ? 'checked' : ''}> ${ic('link', 15)} رابط</label></div>
+        <div data-src="file"><label class="upl-box drop" for="af"><span class="upl-prev">${ic('upload', 22)}</span><span><b id="afl">${a.id && (a.path || a.url?.startsWith('data:')) ? 'الملف مرفوع — اختر ملفاً لاستبداله' : 'اختر ملفاً أو اسحبه هنا'}</b><small>PDF، Word، Excel، صور، صوت، فيديو، أو أي ملف — حتى ${S.live ? '200' : '1.5'} ميغابايت${S.live ? '' : ' في الوضع التجريبي'}</small></span></label><input type="file" id="af" hidden><div class="upl-bar" id="apb" hidden><i></i></div></div>
+        <label data-src="url" hidden>الرابط <span class="hint">Google Drive، يوتيوب، أو رابط مباشر لملف</span><input name="url" dir="ltr" placeholder="https://" value="${esc(a.path || a.url?.startsWith('data:') ? '' : a.url)}"></label>
+        <label>العنوان<input name="title" required maxlength="120" value="${esc(a.title)}" placeholder="مثل: ملخص الدرس الأول"></label>
+        <div class="row"><label>النوع<select name="kind">${Object.keys(ATT_KINDS).map(k => `<option value="${k}" ${a.kind === k ? 'selected' : ''}>${attKindName(k)}</option>`).join('')}</select></label>
+        <label>مرفق بـ<select name="lessonId"><option value="">المادة كلها</option>${c.lessons.map((l, i) => `<option value="${l.id}" ${a.lessonId === l.id ? 'selected' : ''}>الدرس ${i + 1}: ${esc(trim(l.title, 50))}</option>`).join('')}</select></label></div>`;
+      const wireAtt = (form, a) => {
+        let file = null;
+        const sync = () => { const v = $('[name=src]:checked', form).value; $$('[data-src]', form).forEach(el => el.hidden = el.dataset.src !== v); };
+        $$('[name=src]', form).forEach(r => r.onchange = sync); sync();
+        const pick = f => { if (!f) return; file = f; $('#afl', form).textContent = `${f.name} — ${fmtSize(f.size)}`; $('[name=kind]', form).value = attKindOf(f.name, f.type); const t = $('[name=title]', form); if (!t.value) t.value = f.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' '); };
+        $('#af', form).onchange = e => pick(e.target.files[0]);
+        const box = $('.drop', form); ['dragover', 'dragenter'].forEach(ev => box.addEventListener(ev, e => { e.preventDefault(); box.classList.add('over'); })); ['dragleave', 'drop'].forEach(ev => box.addEventListener(ev, e => { e.preventDefault(); box.classList.remove('over'); }));
+        box.addEventListener('drop', e => pick(e.dataTransfer.files[0]));
+        $('[name=url]', form).oninput = e => { const u = e.target.value.trim(); if (u) $('[name=kind]', form).value = attKindOf('', '', u); };
+        form._file = () => file;
+      };
+      const attData = async (fd, form, a = {}) => {
+        const src = fd.get('src'), out = { title: fd.get('title').trim(), kind: fd.get('kind'), lessonId: fd.get('lessonId') || '' };
+        if (src === 'url') { const u = normUrl(fd.get('url')); if (!u) throw new Error('الرابط غير صالح'); if (a.path) await deleteAttachmentFile(a); return { ...out, url: u, path: '', name: '', size: 0, mime: '' }; }
+        const f = form._file();
+        if (!f) { if (a.id && (a.path || a.url?.startsWith('data:'))) return out; throw new Error('اختر ملفاً للرفع'); }
+        const bar = $('#apb', form); bar.hidden = false;
+        const up = await uploadAttachment(f, c.id, p => { $('i', bar).style.width = p + '%'; });
+        if (a.path) await deleteAttachmentFile(a);
+        return { ...out, ...up, name: f.name };
+      };
+      const lib = () => {
+        const groups = [['', 'المادة كلها'], ...c.lessons.map((l, i) => [l.id, `الدرس ${i + 1}: ${l.title}`])].map(([id, t]) => [t, c.attachments.filter(a => id ? a.lessonId === id : !a.lessonId || !c.lessons.some(l => l.id === a.lessonId))]).filter(([, l]) => l.length);
+        pane.innerHTML = `<div class="toolbar"><div class="grow"><p class="muted" style="margin:0">ملفات المادة ودروسها: ملخصات PDF، مذكرات Word، جداول Excel، صور، تسجيلات صوتية، فيديو، أو أي ملف. يراها الطلاب المسجّلون في صفحة الدرس و«مكتبة المادة» و«مكتبتي».</p></div><button class="btn btn-primary btn-sm" id="addA">${ic('plus', 16)} مرفق</button></div>
+          ${!S.live ? `<p class="xwarn">${ic('info', 16)} <span>الوضع التجريبي يحفظ الملفات في المتصفح (حتى 1.5 ميغابايت للملف). للملفات الكبيرة ضع رابطاً، أو اربط Firebase وفعّل Storage.</span></p>` : ''}
+          ${groups.length ? groups.map(([t, l]) => `<h4 class="att-gh">${esc(t)} <small class="muted">(${l.length})</small></h4><div class="att-list">${l.map(a => `<div class="att-row">${attBadge(a.kind)}<span class="grow"><b>${esc(a.title)}</b><small>${attKindName(a.kind)}${a.size ? ' — ' + fmtSize(a.size) : ''} — ${a.path || a.url?.startsWith('data:') ? 'مرفوع' : 'رابط'}</small></span>
+            <div class="acts">${canPreview(a) ? `<button class="icon-btn sm" data-preview="${a.id}" title="معاينة">${ic('eye', 16)}</button>` : ''}<a class="icon-btn sm" href="${esc(a.url)}" target="_blank" rel="noopener" title="فتح">${ic('download', 16)}</a><button class="icon-btn sm" data-au="${a.id}" title="أعلى">${ic('up', 16)}</button><button class="icon-btn sm" data-ae="${a.id}" title="تعديل">${ic('edit', 16)}</button><button class="icon-btn sm danger" data-ar="${a.id}" title="حذف">${ic('trash', 16)}</button></div></div>`).join('')}</div>`).join('')
+            : `<div class="empty">${ic('clip', 34)}<p>لا مرفقات بعد. أضف ملخصاً أو ملفاً للمادة أو لدرس بعينه.</p></div>`}`;
+        $('#addA').onclick = () => modal('مرفق جديد', attForm(), { wide: true, submitText: 'إضافة', onOpen: f => wireAtt(f), onSubmit: async (fd, f) => { const v = await attData(fd, f); c.attachments.push({ id: genId(), at: Date.now(), ...v }); await save(); attCount(); lib(); toast('أُضيف المرفق', 'ok'); } });
+        pane.onclick = async e => {
+          const b = e.target.closest('button'); if (!b) return; const dd = b.dataset, a = c.attachments.find(x => x.id === (dd.preview || dd.ae || dd.ar || dd.au)); if (!a) return;
+          if (dd.preview) openAttPreview(a);
+          if (dd.au) { const i = c.attachments.indexOf(a), j = c.attachments.slice(0, i).map((x, k) => [x, k]).reverse().find(([x]) => (x.lessonId || '') === (a.lessonId || ''))?.[1]; if (j == null) return; [c.attachments[i], c.attachments[j]] = [c.attachments[j], c.attachments[i]]; await save(); lib(); }
+          if (dd.ae) modal('تعديل المرفق', attForm(a), { wide: true, onOpen: f => wireAtt(f, a), onSubmit: async (fd, f) => { Object.assign(a, await attData(fd, f, a)); await save(); lib(); toast('حُفظ المرفق', 'ok'); } });
+          if (dd.ar && await confirmBox(`حذف «${esc(a.title)}»؟${a.path ? ' يُحذف الملف المرفوع أيضاً.' : ''}`, 'حذف')) { await deleteAttachmentFile(a); c.attachments = c.attachments.filter(x => x !== a); await save(); attCount(); lib(); }
+        };
+      };
       const liveCount = () => { const p = $('#lvc'); p.className = 'pill ' + (c.online ? 'ok' : 'mut'); p.textContent = c.online ? lv.sessions.length : 'معطّلة'; };
       const info = () => {
         pane.innerHTML = `<form class="form panel" id="fi" style="max-width:820px">
@@ -98,7 +145,7 @@ async function adminCourse(id) {
           <label>العنوان بالإنجليزية <span class="hint">يظهر في الشهادة</span><input name="titleEn" dir="ltr" value="${esc(c.titleEn)}"></label>
           <label>وصف مختصر <span class="hint">يظهر على بطاقة الدورة</span><input name="summary" maxlength="160" value="${esc(c.summary)}"></label>
           <label>عن الدورة<textarea name="description" rows="5">${esc(c.description)}</textarea></label>
-          <div class="row"><label>التصنيف<input name="category" list="cats2" value="${esc(c.category)}"><datalist id="cats2">${CATS.map(x => `<option value="${x}">`).join('')}</datalist></label>
+          <div class="row"><label>التصنيف <span class="hint">أضف تصنيفاً من القائمة، أو أدرها من الإعدادات</span>${catSelect('category', c.category, false)}</label>
           <label>المستوى<select name="level">${LEVELS.map(l => `<option ${c.level === l ? 'selected' : ''}>${l}</option>`).join('')}</select></label></div>
           <div class="row"><label>المحاضر<input name="instructor" value="${esc(c.instructor)}"></label><label>اسم المحاضر بالإنجليزية <span class="hint">للشهادة الإنجليزية</span><input name="instructorEn" dir="ltr" value="${esc(c.instructorEn)}"></label></div>
           <label>لون الغلاف<div class="swatches">${Object.entries(THEMES).map(([k, v]) => `<label><input type="radio" name="theme" value="${k}" ${c.theme === k ? 'checked' : ''}><span style="background:linear-gradient(135deg,${v.join(',')})"></span></label>`).join('')}</div></label>
@@ -126,6 +173,7 @@ async function adminCourse(id) {
           </fieldset>
           <label class="check"><input type="checkbox" name="published" ${c.published ? 'checked' : ''}> منشورة ويراها الزوّار</label>
           <div><button class="btn btn-primary">حفظ البيانات</button></div></form>`;
+        wireCats(pane);
         const em = $('#em'), modeVis = () => $$('[data-m]', pane).forEach(el => el.hidden = !el.dataset.m.split(' ').includes(em.value));
         em.onchange = modeVis; modeVis();
         const pg = $('#pg'), pgVis = () => $$('[data-pg]', pane).forEach(el => el.hidden = !el.dataset.pg.split(' ').includes(pg.value));
@@ -138,7 +186,8 @@ async function adminCourse(id) {
           Object.assign(c, sched);
           const prg = fd.get('program') || '';
           Object.assign(c, { program: prg, term: prg === 'academy' ? +fd.get('term') || 1 : 0, ijazaKey: prg === 'ijaza' ? fd.get('ijazaKey') || '' : '', book: prg ? fd.get('book').trim() : '', author: prg ? fd.get('author').trim() : '', hours: prg && fd.get('hours') !== '' ? +fd.get('hours') : '', order: prg && fd.get('order') ? +fd.get('order') : '' });
-          Object.assign(c, { title: fd.get('title').trim(), titleEn: fd.get('titleEn').trim(), summary: fd.get('summary').trim(), description: fd.get('description'), category: fd.get('category').trim(), level: fd.get('level'), instructor: fd.get('instructor').trim(), instructorEn: fd.get('instructorEn').trim(), theme: fd.get('theme') || 'teal', icon: fd.get('icon') || 'book', certType: fd.get('certType') || '', published: !!fd.get('published') });
+          let cat; try { cat = await readCat(fd, 'category'); } catch (err) { toast(err.message, 'err'); return; }
+          Object.assign(c, { title: fd.get('title').trim(), titleEn: fd.get('titleEn').trim(), summary: fd.get('summary').trim(), description: fd.get('description'), category: cat, level: fd.get('level'), instructor: fd.get('instructor').trim(), instructorEn: fd.get('instructorEn').trim(), theme: fd.get('theme') || 'teal', icon: fd.get('icon') || 'book', certType: fd.get('certType') || '', published: !!fd.get('published') });
           try { await save(); $('.admin-top h1').textContent = c.title; const n = await syncCourse(c).catch(() => 0); toast(n ? `حُفظت بيانات الدورة، وسُجّل فيها ${n} طالب مقيّد في مستواها` : 'حُفظت بيانات الدورة', 'ok'); } catch (err) { toast(err.message, 'err'); }
         };
       };
@@ -232,7 +281,7 @@ async function adminCourse(id) {
       };
       const lessons = () => {
         pane.innerHTML = `<div class="toolbar"><p class="grow muted">رتّب الدروس بالأسهم. يرى الطالب الدروس بهذا الترتيب.</p><button class="btn btn-primary btn-sm" id="addL">${ic('plus', 16)} درس جديد</button></div>
-          ${c.lessons.length ? `<div class="rowlist">${c.lessons.map((l, i) => `<div class="ritem"><span class="tick">${i + 1}</span>${ic(TYPE_IC[l.type], 19)}<div class="grow"><strong>${esc(l.title)}</strong><br><small>${TYPE_LBL[l.type]}${l.duration ? ` — ${esc(l.duration)} د` : ''}${l.type !== 'text' && !l.url ? ' — <span style="color:var(--warn)">بلا رابط</span>' : ''}</small></div>
+          ${c.lessons.length ? `<div class="rowlist">${c.lessons.map((l, i) => `<div class="ritem"><span class="tick">${i + 1}</span>${ic(TYPE_IC[l.type], 19)}<div class="grow"><strong>${esc(l.title)}</strong><br><small>${TYPE_LBL[l.type]}${l.duration ? ` — ${esc(l.duration)} د` : ''}${l.type !== 'text' && !l.url ? ' — <span style="color:var(--warn)">بلا رابط</span>' : ''}${(c.attachments || []).filter(a => a.lessonId === l.id).length ? ` — ${ic('clip', 12)} ${(c.attachments || []).filter(a => a.lessonId === l.id).length}` : ''}</small></div>
             <div class="acts"><button class="icon-btn sm" data-up="${i}" ${i === 0 ? 'disabled' : ''} title="أعلى">${ic('up', 16)}</button><button class="icon-btn sm" data-dn="${i}" ${i === c.lessons.length - 1 ? 'disabled' : ''} title="أسفل">${ic('down', 16)}</button><button class="icon-btn sm" data-ed="${i}" title="تعديل">${ic('edit', 16)}</button><button class="icon-btn sm danger" data-rm="${i}" title="حذف">${ic('trash', 16)}</button></div></div>`).join('')}</div>`
             : `<div class="empty">${ic('play', 34)}<p>أضف أول درس: فيديو أو صوت أو ملف أو متن.</p></div>`}`;
         $('#addL').onclick = () => modal('درس جديد', lessonForm({ type: 'video' }), { wide: true, submitText: 'إضافة الدرس', onOpen: wireL, onSubmit: async fd => { c.lessons.push({ id: genId(), ...lessonData(fd) }); await save(); counts(); lessons(); toast('أُضيف الدرس', 'ok'); } });
@@ -299,7 +348,7 @@ async function adminStudents() {
   const studentForm = (u = {}) => `<label>الاسم الكامل<input name="name" required value="${esc(u.name)}"></label>
     <label>الاسم بالإنجليزية <span class="hint">للشهادة</span><input name="nameEn" dir="ltr" value="${esc(u.nameEn)}"></label>
     ${u.id ? '' : `<label>اسم المستخدم <span class="hint">أحرف إنجليزية وأرقام</span><input name="username" required pattern="[A-Za-z0-9_.]{3,20}" dir="ltr"></label>`}
-    <label>رقم الجوال<input name="phone" type="tel" dir="ltr" value="${esc(u.phone)}"></label>
+    <label>رقم الجوال${phoneField('phone', u.phone)}</label>
     ${u.id ? '' : `<label>كلمة المرور <span class="hint">6 أحرف على الأقل</span><input name="password" required minlength="6" dir="ltr" value="${Math.random().toString(36).slice(2, 10)}"></label>`}`;
   return {
     active: 'students', title: 'الطلاب',
@@ -313,30 +362,30 @@ async function adminStudents() {
           <td><strong>${esc(u.name)}</strong><br><small class="muted">منذ ${fmtDate(u.createdAt)}</small></td><td dir="ltr" style="text-align:end">${esc(u.username)}</td><td>${d.records.filter(r => r.uid === u.id).map(r => `<span dir="ltr">${esc(r.studentNo)}</span> <small class="muted">${esc(programName(r.program))}</small>`).join('<br>') || '<span class="muted">—</span>'}</td><td dir="ltr" style="text-align:end">${esc(u.phone || '—')}</td>
           <td>${d.enrollments.filter(e => e.uid === u.id).length}</td><td>${d.certificates.filter(c => c.uid === u.id).length}</td>
           <td><span class="pill ${u.disabled ? 'no' : 'ok'}">${u.disabled ? 'موقوف' : 'نشط'}</span></td>
-          <td><div class="acts"><button class="icon-btn sm" data-a="view" data-id="${u.id}" title="التفاصيل">${ic('eye', 16)}</button><button class="icon-btn sm" data-a="enroll" data-id="${u.id}" title="التسجيل في دورات">${ic('book', 16)}</button><button class="icon-btn sm" data-a="edit" data-id="${u.id}" title="تعديل">${ic('edit', 16)}</button>${Auth.canReset ? `<button class="icon-btn sm" data-a="pw" data-id="${u.id}" title="كلمة مرور جديدة">${ic('key', 16)}</button>` : ''}<button class="icon-btn sm" data-a="toggle" data-id="${u.id}" title="${u.disabled ? 'تفعيل' : 'إيقاف'}">${ic(u.disabled ? 'check' : 'ban', 16)}</button><button class="icon-btn sm danger" data-a="del" data-id="${u.id}" title="حذف">${ic('trash', 16)}</button></div></td></tr>`).join('')}</tbody></table></div>`
+          <td><div class="acts"><button class="icon-btn sm" data-a="view" data-id="${u.id}" title="التفاصيل">${ic('eye', 16)}</button><a class="icon-btn sm" href="#/transcript/${u.id}" title="كشف الدرجات">${ic('file', 16)}</a><button class="icon-btn sm" data-a="enroll" data-id="${u.id}" title="التسجيل في دورات">${ic('book', 16)}</button><button class="icon-btn sm" data-a="edit" data-id="${u.id}" title="تعديل">${ic('edit', 16)}</button>${Auth.canReset ? `<button class="icon-btn sm" data-a="pw" data-id="${u.id}" title="كلمة مرور جديدة">${ic('key', 16)}</button>` : ''}<button class="icon-btn sm" data-a="toggle" data-id="${u.id}" title="${u.disabled ? 'تفعيل' : 'إيقاف'}">${ic(u.disabled ? 'check' : 'ban', 16)}</button><button class="icon-btn sm danger" data-a="del" data-id="${u.id}" title="حذف">${ic('trash', 16)}</button></div></td></tr>`).join('')}</tbody></table></div>`
           : `<div class="empty">${ic('users', 36)}<p>${q ? 'لا نتائج مطابقة.' : 'لا يوجد طلاب بعد. أضف طالباً أو فعّل التسجيل الذاتي من الإعدادات.'}</p></div>`;
       };
       $('#q').oninput = e => { q = e.target.value.trim().toLowerCase(); draw(); };
       $('#addS').onclick = () => modal('طالب جديد', studentForm(), {
         submitText: 'إضافة الطالب', onSubmit: async (fd, f) => {
-          const data = { name: fd.get('name').trim(), nameEn: fd.get('nameEn').trim(), username: fd.get('username').trim(), password: fd.get('password'), phone: fd.get('phone').trim() };
+          const data = { name: fd.get('name').trim(), nameEn: fd.get('nameEn').trim(), username: fd.get('username').trim(), password: fd.get('password'), phone: readPhone(fd, 'phone') };
           const id = await Auth.createUser(data, false);
           d.users.push({ id, ...data, createdAt: Date.now(), disabled: false }); draw();
-          modal('أُضيف الطالب', `<p>أرسل للطالب بيانات الدخول:</p><pre class="code">${esc(location.href.replace(/admin\.html.*$/, ''))}#/login\nاسم المستخدم: ${esc(data.username.toLowerCase())}\nكلمة المرور: ${esc(data.password)}</pre>`, { noFoot: true });
+          modal('أُضيف الطالب', `<p>أرسل للطالب بيانات الدخول:</p><pre class="code">${esc(location.href.replace(/[^/]*$/, ''))}#/login\nاسم المستخدم: ${esc(data.username.toLowerCase())}\nكلمة المرور: ${esc(data.password)}</pre>`, { noFoot: true });
         }
       });
       $('#csv').onclick = () => downloadFile('students.csv', toCSV([['الاسم', 'اسم المستخدم', 'الجوال', 'تاريخ التسجيل', 'عدد الدورات', 'عدد الشهادات', 'الحالة'], ...rows().map(u => [u.name, u.username, u.phone, fmtDate(u.createdAt), d.enrollments.filter(e => e.uid === u.id).length, d.certificates.filter(c => c.uid === u.id).length, u.disabled ? 'موقوف' : 'نشط'])]));
       $('#tbl').onclick = async e => {
         const b = e.target.closest('[data-a]'); if (!b) return; const u = d.users.find(x => x.id === b.dataset.id); if (!u) return;
         const a = b.dataset.a;
-        if (a === 'edit') modal('تعديل بيانات الطالب', studentForm(u), { onSubmit: async fd => { const v = { name: fd.get('name').trim(), nameEn: fd.get('nameEn').trim(), phone: fd.get('phone').trim() }; await DB.update('users', u.id, v); Object.assign(u, v); draw(); toast('حُفظت البيانات', 'ok'); } });
+        if (a === 'edit') modal('تعديل بيانات الطالب', studentForm(u), { onSubmit: async fd => { const v = { name: fd.get('name').trim(), nameEn: fd.get('nameEn').trim(), phone: readPhone(fd, 'phone') }; await DB.update('users', u.id, v); Object.assign(u, v); draw(); toast('حُفظت البيانات', 'ok'); } });
         if (a === 'pw') modal('كلمة مرور جديدة', `<label>كلمة المرور الجديدة لـ ${esc(u.name)}<input name="p" required minlength="6" dir="ltr" value="${Math.random().toString(36).slice(2, 10)}"></label>`, { onSubmit: async fd => { await Auth.resetPassword(u.id, fd.get('p')); toast('تغيّرت كلمة المرور', 'ok'); } });
         if (a === 'toggle') { u.disabled = !u.disabled; await DB.update('users', u.id, { disabled: u.disabled }); draw(); toast(u.disabled ? 'أُوقف الحساب' : 'فُعّل الحساب', 'ok'); }
         if (a === 'del') {
           if (!(await confirmBox(`حذف الطالب «${esc(u.name)}» مع تسجيلاته ونتائجه؟ تبقى شهاداته الصادرة قابلة للتحقق.${S.live ? '<br><small class="muted">ملاحظة: احذف حسابه أيضاً من Firebase ← Authentication.</small>' : ''}`, 'حذف'))) return;
           for (const en of d.enrollments.filter(x => x.uid === u.id)) await DB.del('enrollments', en.id);
           for (const at of d.attempts.filter(x => x.uid === u.id)) await DB.del('attempts', at.id);
-          for (const col of ['sittings', 'sitPapers', 'grades', 'examAccess']) for (const x of await safeList(col, { uid: u.id })) await DB.del(col, x.id);
+          for (const col of ['sittings', 'sitPapers', 'grades', 'marks']) for (const x of await safeList(col, { uid: u.id })) await DB.del(col, x.id);
           for (const [c, l] of [['applications', d.applications], ['records', d.records], ['regs', await safeList('regs', { uid: u.id })]]) for (const x of l.filter(x => x.uid === u.id)) await DB.del(c, x.id);
           for (const p of ADM_PROGS) await DB.del('appFiles', `${u.id}_${p}`).catch(() => {});
           await DB.del('users', u.id); d.users = d.users.filter(x => x.id !== u.id); d.enrollments = d.enrollments.filter(x => x.uid !== u.id); draw(); toast('حُذف الطالب');
@@ -364,14 +413,14 @@ async function adminStudents() {
   };
 }
 
-const RES_TABS = [['', 'الامتحانات الرسمية', 'shield'], ['practice', 'الاختبارات الذاتية', 'pen']];
+const RES_TABS = [['', 'الامتحانات الرسمية', 'shield'], ['marks', 'كشوف العلامات', 'sheet'], ['practice', 'الاختبارات الذاتية', 'pen']];
 const resTabs = tab => `<div class="tabs">${RES_TABS.map(([k, t, i]) => `<a class="tab ${tab === k ? 'on' : ''}" href="#/results${k ? '/' + k : ''}">${ic(i, 15)} ${t}</a>`).join('')}</div>`;
 /* نظرة عامة على كل الامتحانات الرسمية: الموعد، الحالة، التسليمات، ما ينتظر التصحيح، إعلان النتائج */
 async function adminOffResults() {
   const [exams, sits, grades, courses] = await Promise.all([DB.list('exams'), DB.list('sittings'), DB.list('grades'), DB.list('courses')]);
   const cm = Object.fromEntries(courses.map(c => [c.id, c])), gk = new Set(grades.map(g => g.id));
   const st = exams.map(e => { const ss = sits.filter(x => x.examId === e.id), gs = grades.filter(g => g.examId === e.id);
-    return { e, ph: examPhase(e), n: e.kind === 'oral' ? gs.length : ss.length, todo: e.kind === 'oral' ? 0 : ss.filter(x => gradable(e, x) && !gk.has(x.id)).length + gs.filter(g => g.pending > 0).length, rev: gs.filter(g => (g.review || []).length).length }; })
+    return { e, ph: examPhase(e), n: ss.length, todo: ss.filter(x => gradable(e, x) && !gk.has(x.id)).length + gs.filter(g => g.pending > 0).length, rev: gs.filter(g => (g.review || []).length).length }; })
     .sort((a, b) => (b.todo - a.todo) || ({ open: 0, soon: 1, closed: 2 }[a.ph] - { open: 0, soon: 1, closed: 2 }[b.ph]) || examSort(a.e, b.e));
   return {
     active: 'results', title: 'الامتحانات والنتائج',
@@ -380,9 +429,9 @@ async function adminOffResults() {
       const draw = () => {
         const k = $('#fk').value, p = $('#fp').value, c = $('#fc').value;
         const l = st.filter(x => (!k || x.e.kind === k) && (!c || x.e.courseId === c) && (!p || (p === 'todo' ? x.todo || x.rev : x.ph === p)));
-        $('#tbl').innerHTML = l.length ? `<div class="tbl-wrap"><table><thead><tr><th>الامتحان</th><th>المادة</th><th>الموعد</th><th>الحالة</th><th>تقدّم</th><th>بانتظار التصحيح</th><th>النتائج</th><th></th></tr></thead><tbody>${l.map(x => `<tr><td><a href="#/exam/${x.e.id}"><strong>${esc(x.e.title)}</strong></a><br>${kindPill(x.e.kind)} ${x.e.published ? '' : '<span class="pill mut">مسودة</span>'}</td><td>${esc(cm[x.e.courseId]?.title || x.e.courseTitle || '—')}</td><td><small>${x.e.kind === 'oral' ? (+x.e.opensAt ? dateRange(x.e.opensAt, x.e.closesAt) : '—') : examWhen(x.e)}</small></td><td>${x.e.kind === 'oral' ? '<span class="pill mut">شفهي</span>' : stPill(EXAM_PH, x.ph)}</td>
+        $('#tbl').innerHTML = l.length ? `<div class="tbl-wrap"><table><thead><tr><th>الامتحان</th><th>المادة</th><th>الموعد</th><th>الحالة</th><th>تقدّم</th><th>بانتظار التصحيح</th><th>النتائج</th><th></th></tr></thead><tbody>${l.map(x => `<tr><td><a href="#/exam/${x.e.id}"><strong>${esc(x.e.title)}</strong></a><br>${kindPill(x.e.kind)} ${x.e.published ? '' : '<span class="pill mut">مسودة</span>'}</td><td>${esc(cm[x.e.courseId]?.title || x.e.courseTitle || '—')}</td><td><small>${examWhen(x.e)}</small></td><td>${stPill(EXAM_PH, x.ph)}</td>
           <td>${x.n}</td><td>${x.todo ? `<span class="pill warn">${x.todo}</span>` : x.rev ? `<span class="pill warn" title="إجابات قصيرة للمراجعة">${x.rev} مراجعة</span>` : '—'}</td><td><span class="pill ${x.e.resultsOut ? 'ok' : 'mut'}">${x.e.resultsOut ? 'معلنة' : 'غير معلنة'}</span></td>
-          <td><div class="acts"><a class="btn btn-ghost btn-sm" href="#/exam/${x.e.id}/grading">${x.e.kind === 'oral' ? 'التقييم' : 'التصحيح'}</a><a class="icon-btn sm" href="#/gradebook/${x.e.courseId}" title="سجل درجات المادة">${ic('chart', 16)}</a></div></td></tr>`).join('')}</tbody></table></div>`
+          <td><div class="acts"><a class="btn btn-ghost btn-sm" href="#/exam/${x.e.id}/grading">التصحيح</a><a class="icon-btn sm" href="#/marks/${x.e.courseId}${x.e.termId ? '/' + x.e.termId : ''}" title="كشف علامات المادة">${ic('chart', 16)}</a></div></td></tr>`).join('')}</tbody></table></div>`
           : `<div class="empty">${ic('shield', 36)}<p>${exams.length ? 'لا امتحانات مطابقة.' : 'لا امتحانات رسمية بعد. أنشئها من محرر كل مادة ← تبويب «الامتحانات الرسمية».'}</p></div>`;
       };
       ['#fk', '#fp', '#fc'].forEach(x => $(x).onchange = draw); draw();
@@ -390,6 +439,7 @@ async function adminOffResults() {
   };
 }
 async function adminResults(tab = '') {
+  if (tab === 'marks') return adminMarksIndex();
   if (tab !== 'practice') return adminOffResults();
   const [att, courses, certs] = await Promise.all([DB.list('attempts'), DB.list('courses'), DB.list('certificates')]);
   const cm = Object.fromEntries(courses.map(c => [c.id, c])), certOf = a => certs.find(x => x.uid === a.uid && x.courseId === a.courseId);
@@ -435,7 +485,7 @@ async function syncOffCount(cid) {
   await DB.update('courses', cid, { offExams: n }); return n;
 }
 async function deleteExamCascade(eid) {
-  for (const col of ['sittings', 'sitPapers', 'grades', 'examAccess']) for (const x of await safeList(col, { examId: eid })) await DB.del(col, x.id);
+  for (const col of ['sittings', 'sitPapers', 'grades']) for (const x of await safeList(col, { examId: eid })) await DB.del(col, x.id);
   for (const col of ['examPapers', 'examKeys', 'exams']) await DB.del(col, eid).catch(() => {});
 }
 const dtField = (name, label, v, hint = '') => `<label>${label}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="datetime-local" name="${name}" value="${toDTInput(v)}"></label>`;
@@ -452,39 +502,37 @@ async function writeGrade(e, s, bank, keys, prev = {}, extra = {}) {
 }
 
 /* ===== تبويب «الامتحانات الرسمية» داخل محرر الدورة ===== */
+/* الفصول التي تُقدَّم فيها المادة (للمواد الأكاديمية): غير المنتهية أولاً ثم الأحدث */
+const termChoices = terms => [...terms].filter(t => (t.program || 'academy') === 'academy').sort((a, b) => (!!a.closedAt - !!b.closedAt) || (+b.startsAt || 0) - (+a.startsAt || 0));
+const termSelect = (terms, sel, name = 'termId', none = 'بلا فصل') => `<select name="${name}">${none ? `<option value="">${none}</option>` : ''}${termChoices(terms).map(t => `<option value="${t.id}" ${sel === t.id ? 'selected' : ''}>${esc(t.name)}${t.closedAt ? ' (منتهٍ)' : ''}</option>`).join('')}</select>`;
+const distLine = c => { const d = gradeDist(c); return GRADE_PARTS.filter(([k]) => d[k]).map(([k, t]) => `${t} ${d[k]}`).join(' + '); };
 async function offExamsPane(c, pane, onCount) {
   pane.innerHTML = loaderA();
   const [exams, terms] = await Promise.all([DB.list('exams', { courseId: c.id }), safeList('terms')]);
   exams.sort(examSort);
-  const wSum = exams.filter(e => e.kind !== 'makeup').reduce((a, e) => a + (+e.weight || 0), 0);
-  const tw = c.program === 'academy' ? openTerms(terms).map(t => examWindow(t, c.id)).find(Boolean) : null;
+  const acad = c.program === 'academy', tn = id => terms.find(t => t.id === id)?.name || '';
+  const cur = acad ? openTerms(terms)[0] : null, tw = cur ? examWindow(cur, c.id) : null;
   onCount(exams.length);
-  pane.innerHTML = `<div class="xinfo panel">${ic('shield', 22)}<div class="grow"><b>امتحانات محمية</b><p class="muted">الأسئلة لا تصل للطالب إلا في موعد الامتحان، والإجابات الصحيحة لا تصل إليه أبداً (يقرؤها المشرف فقط). وقت البدء والتسليم من السيرفر، ومحاولة واحدة لكل طالب. التصحيح من «التسليمات والتصحيح» في صفحة كل امتحان.</p></div></div>
-    <form class="form panel" id="fgp" style="margin:16px 0"><div class="row"><label>درجة نجاح المادة % <span class="hint">على المجموع الموزون للامتحانات</span><input name="gradePass" type="number" min="1" max="100" value="${+c.gradePass || 60}"></label>
-      <div style="align-self:end;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm">حفظ</button><a class="btn btn-ghost btn-sm" href="#/gradebook/${c.id}">${ic('chart', 16)} سجل درجات المادة</a></div></div>
-      ${exams.length ? `<p class="hint">مجموع الأوزان (مذاكرات + نهائي + شفهي): <b style="color:${wSum === 100 ? 'var(--ok)' : 'var(--warn)'}">${wSum}%</b>${wSum !== 100 ? ' — يُعاد توزيعها نسبياً، والأوضح أن يكون المجموع 100.' : ''} الإكمالي يحلّ محل النهائي بوزنه.</p>` : ''}</form>
+  pane.innerHTML = `<div class="xinfo panel">${ic('shield', 22)}<div class="grow"><b>امتحانات محمية</b><p class="muted">الأسئلة لا تصل للطالب إلا في موعد الامتحان، والإجابات الصحيحة لا تصل إليه أبداً. وقت البدء والتسليم من السيرفر، ومحاولة واحدة لكل طالب. درجة المذاكرات (متوسطها) والنهائي تُسحب تلقائياً إلى كشف علامات المادة.</p></div></div>
+    <div class="panel dist-mini" style="margin:16px 0">${ic('chart', 20)}<div class="grow"><b>توزيع علامة المادة</b><small>${distLine(c)} — النجاح من ${coursePass(c)}</small></div><a class="btn btn-primary btn-sm" href="#/marks/${c.id}">${ic('sheet', 16)} كشف العلامات والتوزيع</a></div>
     <div class="toolbar"><h3 class="grow" style="margin:0">امتحانات المادة (${exams.length})</h3>${Object.keys(EXAM_KINDS).map(k => `<button class="btn ${k === 'final' ? 'btn-primary' : 'btn-ghost'} btn-sm" data-newx="${k}">${ic('plus', 15)} ${examKindName(k)}</button>`).join('')}</div>
-    ${exams.length ? `<div class="rowlist">${exams.map(e => `<a class="ritem" href="#/exam/${e.id}">${ic(EXAM_KINDS[e.kind]?.[1] || 'quiz', 20)}<div class="grow"><strong>${esc(e.title || examKindName(e.kind))}</strong> ${kindPill(e.kind)}<br><small>${e.kind === 'oral' ? (+e.opensAt ? dateRange(e.opensAt, e.closesAt) : 'بلا موعد محدد') : `${examWhen(e)} — ${e.nq || 0} سؤالاً${+e.duration ? ` — ${e.duration} د` : ''}`}${e.kind !== 'makeup' ? ` — الوزن ${+e.weight || 0}%` : ''}</small></div>
+    ${exams.length ? `<div class="rowlist">${exams.map(e => `<a class="ritem" href="#/exam/${e.id}">${ic(EXAM_KINDS[e.kind]?.[1] || 'quiz', 20)}<div class="grow"><strong>${esc(e.title || examKindName(e.kind))}</strong> ${kindPill(e.kind)}${e.termId ? ` <span class="pill mut">${esc(tn(e.termId))}</span>` : ''}<br><small>${examWhen(e)} — ${e.nq || 0} سؤالاً${+e.duration ? ` — ${e.duration} د` : ''}</small></div>
       <span class="pill ${e.published ? 'ok' : 'mut'}">${e.published ? 'منشور' : 'مسودة'}</span>${e.resultsOut ? '<span class="pill ok">النتائج معلنة</span>' : ''}${ic('prev', 16)}</a>`).join('')}</div>`
-      : `<div class="empty">${ic('award', 34)}<p>لا امتحانات رسمية بعد. ابدأ بـ«${examKindName('final')}»، وأضف مذاكرات خلال الفصل${c.program === 'ijaza' ? '، أو «تقييم شفهي» يسجّله الشيخ' : ''}.</p></div>`}`;
-  $('#fgp').onsubmit = async ev => { ev.preventDefault(); c.gradePass = Math.min(100, Math.max(1, +new FormData(ev.target).get('gradePass') || 60)); await DB.update('courses', c.id, { gradePass: c.gradePass }); toast('حُفظت درجة نجاح المادة', 'ok'); };
+      : `<div class="empty">${ic('award', 34)}<p>لا امتحانات رسمية بعد. ابدأ بـ«${examKindName('final')}»، وأضف مذاكرات خلال الفصل.</p></div>`}`;
   $$('[data-newx]', pane).forEach(b => b.onclick = () => {
-    const kind = b.dataset.newx, fin = exams.find(x => x.kind === 'final'), d = DEFAULT_OFFEXAM(kind);
+    const kind = b.dataset.newx, d = DEFAULT_OFFEXAM(kind);
     if (kind === 'final' && tw) { d.opensAt = tw.from; d.closesAt = tw.to; }
     modal(`${examKindName(kind)} جديد`, `<label>العنوان<input name="title" required maxlength="80" value="${esc(kind === 'quiz' ? `مذاكرة ${exams.filter(x => x.kind === 'quiz').length + 1}` : d.title)}"></label>
-      ${kind === 'oral' ? `<p class="hint">التقييم الشفهي بلا أسئلة إلكترونية: يسمع الشيخ من الطالب ويسجّل التقدير من صفحة الامتحان.</p>` : ''}
-      <div class="row">${dtField('opensAt', kind === 'oral' ? 'بداية فترة التقييم' : 'يُفتح في', d.opensAt, 'اختياري')}${dtField('closesAt', kind === 'oral' ? 'نهاية فترة التقييم' : 'يُغلق في', d.closesAt, 'اختياري')}</div>
-      ${kind === 'final' && tw ? `<p class="hint">${ic('calendar', 14)} عُبّئ الموعد من التقويم الأكاديمي (${dateRange(tw.from, tw.to)}) — عدّله بالساعة الدقيقة.</p>` : ''}
-      ${kind === 'makeup' && fin ? `<label class="check"><input type="checkbox" name="copy" checked> انسخ بنك أسئلة «${esc(fin.title)}» إلى الإكمالي</label>` : ''}`, {
+      ${acad ? `<label>الفصل الدراسي <span class="hint">يتقدّم له طلاب المادة المقيّدون في هذا الفصل، ومن يعيدها فيه</span>${termSelect(terms, cur?.id || '', 'termId', '')}</label>` : ''}
+      <div class="row">${dtField('opensAt', 'يُفتح في', d.opensAt, 'اختياري')}${dtField('closesAt', 'يُغلق في', d.closesAt, 'اختياري')}</div>
+      ${kind === 'final' && tw ? `<p class="hint">${ic('calendar', 14)} عُبّئ الموعد من التقويم الأكاديمي (${dateRange(tw.from, tw.to)}) — عدّله بالساعة الدقيقة.</p>` : ''}`, {
       submitText: 'إنشاء ومتابعة', onSubmit: async fd => {
         const id = genId(), o = fromDTInput(fd.get('opensAt')), cl = fromDTInput(fd.get('closesAt'));
         if (o && cl && cl <= o) throw new Error('وقت الإغلاق قبل وقت الفتح');
-        const v = { ...d, title: fd.get('title').trim(), opensAt: o, closesAt: cl, courseId: c.id, courseTitle: c.title, program: c.program || '', makeupOf: kind === 'makeup' ? fin?.id || '' : '', createdAt: Date.now(), updatedAt: Date.now() };
-        let qs = [], ks = {};
-        if (kind === 'makeup' && fin && fd.get('copy')) { const [p, k] = await Promise.all([safeGet('examPapers', fin.id), safeGet('examKeys', fin.id)]); qs = p?.questions || []; ks = k?.answers || {}; Object.assign(v, { drawOn: fin.drawOn, draw: { ...(fin.draw || {}) }, shuffle: fin.shuffle, shuffleOpts: fin.shuffleOpts, duration: fin.duration, passScore: fin.passScore }); }
-        v.nq = paperCount(v, qs); v.counts = typeCounts(qs);
+        const v = { ...d, title: fd.get('title').trim(), opensAt: o, closesAt: cl, courseId: c.id, courseTitle: c.title, program: c.program || '', termId: acad ? fd.get('termId') || '' : '', createdAt: Date.now(), updatedAt: Date.now() };
+        v.nq = 0; v.counts = typeCounts([]);
         await DB.set('exams', id, v);
-        if (kind !== 'oral') { await DB.set('examPapers', id, { courseId: c.id, questions: qs, updatedAt: Date.now() }); await DB.set('examKeys', id, { answers: ks, updatedAt: Date.now() }); }
+        await DB.set('examPapers', id, { courseId: c.id, questions: [], updatedAt: Date.now() }); await DB.set('examKeys', id, { answers: {}, updatedAt: Date.now() });
         go(`/exam/${id}`);
       }
     });
@@ -497,17 +545,16 @@ async function adminExam(id, tab = '') {
   const e0 = await DB.get('exams', id);
   if (!e0) return { active: 'results', title: 'غير موجود', html: '<div class="empty">الامتحان غير موجود أو حُذف.</div>' };
   const ex = { ...DEFAULT_OFFEXAM(e0.kind), ...e0, draw: { ...DEFAULT_OFFEXAM(e0.kind).draw, ...(e0.draw || {}) } };
-  const oral = ex.kind === 'oral';
-  const [c, paper, key] = await Promise.all([safeGet('courses', ex.courseId), oral ? null : safeGet('examPapers', id), oral ? null : safeGet('examKeys', id)]);
+  const [c, paper, key, terms] = await Promise.all([safeGet('courses', ex.courseId), safeGet('examPapers', id), safeGet('examKeys', id), safeList('terms')]);
   const bank = paper?.questions || [], keys = key?.answers || {};
-  const tabs = [['', 'الإعدادات', 'settings'], ...(oral ? [['grading', 'التقييم الشفهي', 'audio']] : [['questions', `بنك الأسئلة <span class="pill mut">${bank.length}</span>`, 'quiz'], ['grading', 'التسليمات والتصحيح', 'check']]), ...(ex.kind === 'makeup' ? [['access', 'المسموح لهم', 'key']] : [])];
+  const tabs = [['', 'الإعدادات', 'settings'], ['questions', `بنك الأسئلة <span class="pill mut">${bank.length}</span>`, 'quiz'], ['grading', 'التسليمات والتصحيح', 'check']];
   if (!tabs.some(t => t[0] === (tab || ''))) tab = '';
   const saveExam = async () => { ex.nq = paperCount(ex, bank); ex.counts = typeCounts(bank); ex.updatedAt = Date.now(); await DB.set('exams', id, stripId(ex)); };
   const savePaper = async () => { await DB.set('examPapers', id, { courseId: ex.courseId, questions: bank, updatedAt: Date.now() }); await DB.set('examKeys', id, { answers: keys, updatedAt: Date.now() }); await saveExam(); };
   return {
     active: 'results', title: esc(ex.title || examKindName(ex.kind)),
     actions: `<a class="btn btn-ghost btn-sm" href="#/course/${ex.courseId}?t=offx">${ic('prev', 16)} ${esc(trim(c?.title || ex.courseTitle || 'المادة', 30))}</a>`,
-    html: `<div class="xhead">${kindPill(ex.kind)} <span class="pill ${ex.published ? 'ok' : 'mut'}">${ex.published ? 'منشور' : 'مسودة'}</span> ${oral ? '' : stPill(EXAM_PH, examPhase(ex))} ${ex.resultsOut ? '<span class="pill ok">النتائج معلنة للطلاب</span>' : ''}<small class="muted">${oral ? (+ex.opensAt ? dateRange(ex.opensAt, ex.closesAt) : '') : examWhen(ex)}</small></div>
+    html: `<div class="xhead">${kindPill(ex.kind)} <span class="pill ${ex.published ? 'ok' : 'mut'}">${ex.published ? 'منشور' : 'مسودة'}</span> ${stPill(EXAM_PH, examPhase(ex))} ${ex.termId ? `<span class="pill mut">${esc(terms.find(t => t.id === ex.termId)?.name || '')}</span>` : ''} ${ex.resultsOut ? '<span class="pill ok">النتائج معلنة للطلاب</span>' : ''}<small class="muted">${examWhen(ex)}</small></div>
       <div class="tabs" role="tablist">${tabs.map(([k, t, i]) => `<a class="tab ${tab === k ? 'on' : ''}" href="#/exam/${id}${k ? '/' + k : ''}">${ic(i, 15)} ${t}</a>`).join('')}</div><div id="pane"></div>`,
     async mount() {
       const pane = $('#pane');
@@ -515,45 +562,39 @@ async function adminExam(id, tab = '') {
 
       /* ---------- الإعدادات ---------- */
       if (tab === '') {
-        const finals = oral ? [] : (await DB.list('exams', { courseId: ex.courseId })).filter(x => x.kind === 'final');
-        const sits = oral ? [] : await safeList('sittings', { examId: id });
+        const sits = await safeList('sittings', { examId: id }), acad = c?.program === 'academy';
         pane.innerHTML = `<form class="form panel" id="fx" style="max-width:860px">
           <div class="row"><label>العنوان<input name="title" required maxlength="80" value="${esc(ex.title)}"></label><label>النوع<input value="${esc(examKindName(ex.kind))}" disabled></label></div>
-          <label>تعليمات للطلاب <span class="hint">تظهر قبل البدء، مثل: يُسمح بالمصحف في سؤال التفسير، أو اكتب الإجابات بخط واضح</span><textarea name="note" rows="3" maxlength="1000">${esc(ex.note)}</textarea></label>
-          <fieldset class="fset"><legend>${ic('calendar', 17)} ${oral ? 'فترة التقييم' : 'الموعد'}</legend>
-            <div class="row">${dtField('opensAt', oral ? 'من' : 'يُفتح في', ex.opensAt, 'فارغ = من الآن')}${dtField('closesAt', oral ? 'إلى' : 'يُغلق في', ex.closesAt, 'فارغ = بلا نهاية')}</div>
-            ${oral ? `<label>اسم الشيخ المقيِّم <span class="hint">يظهر للطالب، ويمكن تغييره لكل طالب عند التسجيل</span><input name="examiner" maxlength="80" value="${esc(ex.examiner)}"></label>`
-            : `<div class="row"><label>مدة الحل بالدقائق <span class="hint">تبدأ من ضغط الطالب «ابدأ»، ولا تتجاوز وقت الإغلاق. 0 = حتى الإغلاق</span><input name="duration" type="number" min="0" max="600" step="1" value="${+ex.duration || 0}"></label><div></div></div>
-            <p class="hint">${ic('shield', 14)} يبدأ الامتحان على السيرفر (Cloud Functions): يتحقق من الموعد والصلاحية، ويسحب أسئلة كل طالب ويعطيه ورقته فقط — بنك الأسئلة والإجابات لا يصلان للطالب أبداً. الوقت من خادم Firebase، والقواعد ترفض أي تسليم بعد انتهاء المدة بأكثر من 90 ثانية، والسيرفر يسلّم أوراق من انتهى وقته ويصحّحها كل 10 دقائق.</p>`}
+          ${acad ? `<label>الفصل الدراسي <span class="hint">يتقدّم له طلاب المادة المقيّدون في هذا الفصل (ومن يعيدها فيه)، وتُرصد درجته في كشف علامات الفصل</span>${termSelect(terms, ex.termId, 'termId', 'كل الفصول')}</label>` : ''}
+          <label>تعليمات للطلاب <span class="hint">تظهر قبل البدء، مثل: يُسمح بالمصحف في سؤال التفسير</span><textarea name="note" rows="3" maxlength="1000">${esc(ex.note)}</textarea></label>
+          <fieldset class="fset"><legend>${ic('calendar', 17)} الموعد</legend>
+            <div class="row">${dtField('opensAt', 'يُفتح في', ex.opensAt, 'فارغ = من الآن')}${dtField('closesAt', 'يُغلق في', ex.closesAt, 'فارغ = بلا نهاية')}</div>
+            <div class="row"><label>مدة الحل بالدقائق <span class="hint">تبدأ من ضغط الطالب «ابدأ»، ولا تتجاوز وقت الإغلاق. 0 = حتى الإغلاق</span><input name="duration" type="number" min="0" max="600" step="1" value="${+ex.duration || 0}"></label><label>درجة النجاح في هذا الامتحان %<input name="passScore" type="number" min="1" max="100" value="${+ex.passScore || 60}"></label></div>
+            <p class="hint">${ic('shield', 14)} يبدأ الامتحان على السيرفر (Cloud Functions): يتحقق من الموعد والصلاحية ويسحب أسئلة كل طالب. الوقت من خادم Firebase، ويُسلَّم تلقائياً عند انتهائه.</p>
           </fieldset>
-          <fieldset class="fset"><legend>${ic('award', 17)} الدرجات</legend>
-            <div class="row"><label>درجة النجاح %<input name="passScore" type="number" min="1" max="100" value="${+ex.passScore || 60}"></label>
-            ${ex.kind === 'makeup' ? `<label>بدلاً من<select name="makeupOf"><option value="">—</option>${finals.map(f => `<option value="${f.id}" ${ex.makeupOf === f.id ? 'selected' : ''}>${esc(f.title)}</option>`).join('')}</select></label>` : `<label>الوزن من درجة المادة %<input name="weight" type="number" min="0" max="100" value="${+ex.weight || 0}"></label>`}</div>
-            ${ex.kind === 'makeup' ? `<p class="hint">درجة الإكمالي تحلّ محل درجة النهائي في مجموع المادة إن كانت أعلى منها.</p><label class="check"><input type="checkbox" name="capPass" ${ex.capPass ? 'checked' : ''}> تُحتسب درجة الإكمالي بحدّ أقصى درجة النجاح (مثلاً من نجح بـ90 تُرصد له 60)</label>` : ''}
-          </fieldset>
-          ${oral ? '' : `<fieldset class="fset"><legend>${ic('quiz', 17)} ورقة الامتحان</legend>
+          <p class="hint">${ic('chart', 14)} ${ex.kind === 'final' ? `درجته تُرصد «الامتحان النهائي» في كشف العلامات (${gradeDist(c).final} من 100).` : `متوسط المذاكرات يُرصد «المذاكرة» في كشف العلامات (${gradeDist(c).quiz} من 100).`} <a href="#/marks/${ex.courseId}${ex.termId ? '/' + ex.termId : ''}" style="color:var(--teal)">كشف العلامات</a></p>
+          <fieldset class="fset"><legend>${ic('quiz', 17)} ورقة الامتحان</legend>
             <label class="check"><input type="checkbox" name="shuffle" ${ex.shuffle ? 'checked' : ''}> ترتيب عشوائي للأسئلة لكل طالب</label>
             <label class="check"><input type="checkbox" name="shuffleOpts" ${ex.shuffleOpts ? 'checked' : ''}> ترتيب عشوائي لخيارات أسئلة الاختيار من متعدد</label>
             <label class="check"><input type="checkbox" name="drawOn" id="dOn" ${ex.drawOn ? 'checked' : ''}> سحب عشوائي من بنك الأسئلة — لكل طالب ورقة مختلفة بنفس التركيب</label>
             <div class="row draw" id="dRow">${Object.entries(Q_TYPES).map(([t, n]) => `<label>${n} <span class="hint">من ${bank.filter(q => q.type === t).length} في البنك</span><input name="d_${t}" type="number" min="0" max="${bank.filter(q => q.type === t).length}" value="${+ex.draw[t] || 0}"></label>`).join('')}</div>
-            <p class="hint" id="nqL"></p></fieldset>`}
-          <label class="check"><input type="checkbox" name="published" ${ex.published ? 'checked' : ''}> منشور — ${oral ? 'يظهر للطلاب في صفحة المادة' : 'يظهر للطلاب ويدخلونه في موعده'}</label>
+            <p class="hint" id="nqL"></p></fieldset>
+          <label class="check"><input type="checkbox" name="published" ${ex.published ? 'checked' : ''}> منشور — يظهر للطلاب ويدخلونه في موعده</label>
           <div class="toolbar" style="margin:0"><button class="btn btn-primary">حفظ</button><span class="grow"></span><button type="button" class="btn btn-danger btn-sm" id="delX">${ic('trash', 15)} حذف الامتحان</button></div></form>`;
         const f = $('#fx');
-        const nqL = () => { if (oral) return; const fd = new FormData(f), t = { drawOn: !!fd.get('drawOn'), draw: Object.fromEntries(Object.keys(Q_TYPES).map(k => [k, +fd.get('d_' + k) || 0])) }; $('#dRow').hidden = !t.drawOn; const n = paperCount(t, bank); $('#nqL').innerHTML = `${ic('info', 14)} ورقة كل طالب: <b>${n}</b> سؤالاً من بنك فيه ${bank.length}.${!bank.length ? ` <a href="#/exam/${id}/questions" style="color:var(--teal)">أضف الأسئلة</a>` : ''}`; };
-        if (!oral) { f.oninput = nqL; nqL(); }
+        const nqL = () => { const fd = new FormData(f), t = { drawOn: !!fd.get('drawOn'), draw: Object.fromEntries(Object.keys(Q_TYPES).map(k => [k, +fd.get('d_' + k) || 0])) }; $('#dRow').hidden = !t.drawOn; const n = paperCount(t, bank); $('#nqL').innerHTML = `${ic('info', 14)} ورقة كل طالب: <b>${n}</b> سؤالاً من بنك فيه ${bank.length}.${!bank.length ? ` <a href="#/exam/${id}/questions" style="color:var(--teal)">أضف الأسئلة</a>` : ''}`; };
+        f.oninput = nqL; nqL();
         f.onsubmit = async ev => {
           ev.preventDefault(); if (!f.checkValidity()) { f.reportValidity(); return; }
           const fd = new FormData(f), o = fromDTInput(fd.get('opensAt')), cl = fromDTInput(fd.get('closesAt'));
           if (o && cl && cl <= o) { toast('وقت الإغلاق قبل وقت الفتح', 'err'); return; }
-          const v = { title: fd.get('title').trim(), note: fd.get('note').trim(), opensAt: o, closesAt: cl, passScore: Math.min(100, Math.max(1, +fd.get('passScore') || 60)), published: !!fd.get('published') };
-          if (oral) v.examiner = fd.get('examiner').trim();
-          else Object.assign(v, { duration: Math.max(0, Math.round(+fd.get('duration') || 0)), shuffle: !!fd.get('shuffle'), shuffleOpts: !!fd.get('shuffleOpts'), drawOn: !!fd.get('drawOn'), draw: Object.fromEntries(Object.keys(Q_TYPES).map(k => [k, Math.max(0, Math.round(+fd.get('d_' + k) || 0))])) });
-          if (ex.kind === 'makeup') Object.assign(v, { makeupOf: fd.get('makeupOf') || '', capPass: !!fd.get('capPass') }); else v.weight = Math.min(100, Math.max(0, +fd.get('weight') || 0));
-          if (v.published && !oral && !paperCount({ ...ex, ...v }, bank)) { toast('لا يمكن نشر امتحان بلا أسئلة — أضف أسئلة إلى البنك أولاً', 'err'); return; }
-          if (!oral && sits.length && (v.drawOn !== ex.drawOn || JSON.stringify(v.draw) !== JSON.stringify(ex.draw)) && !(await confirmBox(`بدأ ${sits.length} طالب هذا الامتحان. تغيير تركيب الورقة يطبَّق على من يبدأ بعد الآن فقط. متابعة؟`, 'حفظ'))) return;
+          const v = { title: fd.get('title').trim(), note: fd.get('note').trim(), opensAt: o, closesAt: cl, passScore: Math.min(100, Math.max(1, +fd.get('passScore') || 60)), published: !!fd.get('published'),
+            duration: Math.max(0, Math.round(+fd.get('duration') || 0)), shuffle: !!fd.get('shuffle'), shuffleOpts: !!fd.get('shuffleOpts'), drawOn: !!fd.get('drawOn'), draw: Object.fromEntries(Object.keys(Q_TYPES).map(k => [k, Math.max(0, Math.round(+fd.get('d_' + k) || 0))])) };
+          if (acad) v.termId = fd.get('termId') || '';
+          if (v.published && !paperCount({ ...ex, ...v }, bank)) { toast('لا يمكن نشر امتحان بلا أسئلة — أضف أسئلة إلى البنك أولاً', 'err'); return; }
+          if (sits.length && (v.drawOn !== ex.drawOn || JSON.stringify(v.draw) !== JSON.stringify(ex.draw)) && !(await confirmBox(`بدأ ${sits.length} طالب هذا الامتحان. تغيير تركيب الورقة يطبَّق على من يبدأ بعد الآن فقط. متابعة؟`, 'حفظ'))) return;
           Object.assign(ex, v);
-          try { await saveExam(); await syncOffCount(ex.courseId); $('.admin-top h1').textContent = ex.title; toast(v.published && !oral && v.duration && cl && o && cl - o < v.duration * 6e4 ? 'حُفظ — تنبيه: نافذة الامتحان أقصر من مدته' : 'حُفظ الامتحان', 'ok'); route(); } catch (err) { toast(err.message, 'err'); }
+          try { await saveExam(); await syncOffCount(ex.courseId); $('.admin-top h1').textContent = ex.title; toast(v.published && v.duration && cl && o && cl - o < v.duration * 6e4 ? 'حُفظ — تنبيه: نافذة الامتحان أقصر من مدته' : 'حُفظ الامتحان', 'ok'); route(); } catch (err) { toast(err.message, 'err'); }
         };
         $('#delX').onclick = async () => {
           if (!(await confirmBox(`حذف «${esc(ex.title)}» نهائياً مع أسئلته وتسليمات الطلاب ودرجاتهم؟`, 'حذف'))) return;
@@ -564,7 +605,7 @@ async function adminExam(id, tab = '') {
 
       /* ---------- بنك الأسئلة ---------- */
       if (tab === 'questions') {
-        const sits = await safeList('sittings', { examId: id }), others = (await DB.list('exams', { courseId: ex.courseId })).filter(x => x.id !== id && x.kind !== 'oral');
+        const sits = await safeList('sittings', { examId: id }), others = (await DB.list('exams', { courseId: ex.courseId })).filter(x => x.id !== id);
         const legacy = c?.exam?.questions || [];
         const qForm = (q, k) => `<label>نص السؤال<textarea name="text" rows="3" required maxlength="3000">${esc(q.text)}</textarea></label>
           <div class="row"><label>النوع<select name="type" id="qt">${Object.entries(Q_TYPES).map(([t, n]) => `<option value="${t}" ${q.type === t ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label>الدرجة<input name="pts" type="number" min="0.5" max="100" step="0.5" required value="${+q.pts || 1}"></label></div>
@@ -624,66 +665,15 @@ async function adminExam(id, tab = '') {
         draw(); return;
       }
 
-      /* ---------- المسموح لهم (الإكمالي) ---------- */
-      if (tab === 'access') {
-        const [enr, acc, exams, grades, users] = await Promise.all([DB.list('enrollments', { courseId: ex.courseId }), DB.list('examAccess', { examId: id }), DB.list('exams', { courseId: ex.courseId }), DB.list('grades', { courseId: ex.courseId }), safeList('records')]);
-        const gm = Object.fromEntries(grades.map(g => [g.id, g])), base = exams.filter(x => x.kind !== 'makeup'), pass = +c?.gradePass || 60;
-        const rows = enr.map(en => { const t = courseTotal(base, e => gm[`${e.id}_${en.uid}`], pass); return { uid: en.uid, name: en.userName, t, fail: !t || !t.passed, no: (users.find(r => r.uid === en.uid) || {}).studentNo || '' }; }).sort((a, b) => b.fail - a.fail || (a.name || '').localeCompare(b.name || '', 'ar'));
-        const has = new Set(acc.map(a => a.uid));
-        pane.innerHTML = `<div class="panel"><div class="toolbar"><div class="grow"><h3 style="margin:0">من يحق له الإكمالي (${has.size})</h3><small class="muted">لا يرى الطالب أسئلة الإكمالي ولا يدخله إلا إذا حُدّد هنا. الراسب = مجموعه في المادة دون ${pass}% أو تنقصه درجة امتحان.</small></div>
-          <button class="btn btn-ghost btn-sm" id="selF">${ic('check', 15)} تحديد الراسبين (${rows.filter(r => r.fail).length})</button><button class="btn btn-primary btn-sm" id="svA">حفظ</button></div>
-          ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th></th><th>الطالب</th><th>الرقم الجامعي</th><th>مجموع المادة قبل الإكمالي</th><th>الحالة</th></tr></thead><tbody>${rows.map(r => `<tr><td><input type="checkbox" class="acc" value="${r.uid}" ${has.has(r.uid) ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--teal)"></td><td>${esc(r.name)}</td><td dir="ltr">${esc(r.no) || '—'}</td><td>${r.t ? `${r.t.total}%${r.t.missing ? ' <small class="muted">(درجات ناقصة)</small>' : ''}` : '—'}</td><td><span class="pill ${r.fail ? 'no' : 'ok'}">${r.fail ? 'راسب' : 'ناجح'}</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لا يوجد طلاب مسجّلون في المادة.</p>'}</div>`;
-        $('#selF').onclick = () => $$('.acc').forEach(x => { x.checked = rows.find(r => r.uid === x.value)?.fail || false; });
-        $('#svA').onclick = async ev => {
-          const want = new Set($$('.acc').filter(x => x.checked).map(x => x.value)); ev.target.disabled = true;
-          try {
-            for (const r of rows) { const k = `${id}_${r.uid}`; if (want.has(r.uid) && !has.has(r.uid)) await DB.set('examAccess', k, { uid: r.uid, examId: id, courseId: ex.courseId, name: r.name || '', at: Date.now() }); if (!want.has(r.uid) && has.has(r.uid)) await DB.del('examAccess', k); }
-            toast(`حُفظت القائمة — ${want.size} طالب`, 'ok'); route();
-          } catch (err) { toast(err.message, 'err'); ev.target.disabled = false; }
-        };
-        return;
-      }
-
-      /* ---------- التقييم الشفهي ---------- */
-      if (oral) {
-        const [enr, grades, recs] = await Promise.all([DB.list('enrollments', { courseId: ex.courseId }), DB.list('grades', { examId: id }), safeList('records')]);
-        const gm = Object.fromEntries(grades.map(g => [g.uid, g]));
-        const rows = enr.map(en => ({ uid: en.uid, name: en.userName, no: (recs.find(r => r.uid === en.uid) || {}).studentNo || '', g: gm[en.uid] })).sort((a, b) => !!a.g - !!b.g || (a.name || '').localeCompare(b.name || '', 'ar'));
-        pane.innerHTML = `<div class="kpis">${[['users', rows.length, 'طالب في المادة'], ['check', grades.length, 'سُجّل تقييمه'], ['award', grades.filter(g => g.passed).length, 'اجتاز'], ['clock', rows.length - grades.length, 'بانتظار التقييم']].map(([i, n, t]) => `<div class="kpi">${ic(i, 22)}<b>${n}</b><span>${t}</span></div>`).join('')}</div>
-          <div class="toolbar"><h3 class="grow" style="margin:0">سجل التقييم الشفهي</h3><button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>${ex.resultsOut ? `<button class="btn btn-ghost btn-sm" id="unpub">${ic('eye', 16)} إخفاء النتائج</button>` : `<button class="btn btn-brass btn-sm" id="pub">${ic('award', 16)} إعلان النتائج للطلاب</button>`}</div>
-          ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>الطالب</th><th>الرقم الجامعي</th><th>التقدير</th><th>الدرجة</th><th>المقدار</th><th>المقيِّم والتاريخ</th><th></th></tr></thead><tbody>${rows.map(r => `<tr><td><strong>${esc(r.name)}</strong></td><td dir="ltr">${esc(r.no) || '—'}</td><td>${r.g ? `<span class="pill ${r.g.passed ? 'ok' : 'no'}">${esc(oralRate(r.g.rate)?.[1] || '—')}</span>` : '<span class="pill mut">لم يُقيَّم</span>'}</td><td>${r.g?.score != null ? r.g.score + '%' : '—'}</td><td>${esc(trim(r.g?.portion || '', 40)) || '—'}</td><td>${r.g ? `${esc(r.g.examiner || '—')}<br><small class="muted">${fmtDate(r.g.heardAt)}</small>` : '—'}</td>
-            <td><div class="acts"><button class="btn btn-${r.g ? 'ghost' : 'primary'} btn-sm" data-or="${r.uid}">${r.g ? 'تعديل' : 'تسجيل التقييم'}</button>${r.g ? `<button class="icon-btn sm danger" data-od="${r.uid}" title="حذف التقييم">${ic('trash', 16)}</button>` : ''}</div></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${ic('users', 34)}<p>لا يوجد طلاب مسجّلون في المادة.</p></div>`}`;
-        $('#pub') && ($('#pub').onclick = async () => { if (await confirmBox(`إعلان التقييم لـ${grades.length} طالب؟ ${rows.length - grades.length ? `(${rows.length - grades.length} لم يُقيَّموا بعد)` : ''}`, 'إعلان')) pub(true); });
-        $('#unpub') && ($('#unpub').onclick = () => pub(false));
-        $('#csv').onclick = () => downloadFile(`oral-${id}.csv`, toCSV([['الطالب', 'الرقم الجامعي', 'التقدير', 'الدرجة', 'المقدار', 'المقيِّم', 'التاريخ', 'ملاحظات'], ...rows.map(r => [r.name, r.no, oralRate(r.g?.rate)?.[1] || '', r.g?.score ?? '', r.g?.portion || '', r.g?.examiner || '', r.g ? fmtDate(r.g.heardAt) : '', r.g?.notes || ''])]));
-        pane.onclick = async ev => {
-          const b = ev.target.closest('[data-or],[data-od]'); if (!b) return; const r = rows.find(x => x.uid === (b.dataset.or || b.dataset.od)); if (!r) return;
-          if (b.dataset.od) { if (await confirmBox(`حذف تقييم ${esc(r.name)}؟`, 'حذف')) { await DB.del('grades', `${id}_${r.uid}`); route(); } return; }
-          const g = r.g || {};
-          modal(`التقييم الشفهي — ${esc(r.name)}`, `<div class="row"><label>التقدير<select name="rate" required><option value="">اختر…</option>${ORAL_RATES.map(([k, t, n]) => `<option value="${k}" ${g.rate === k ? 'selected' : ''}>${t}${n ? ` (${n})` : ''}</option>`).join('')}</select></label>
-            <label>الدرجة % <span class="hint">اختياري — فارغ = الدرجة الاسمية للتقدير</span><input name="score" type="number" min="0" max="100" step="0.5" value="${g.score != null && g.scoreSet ? g.score : ''}"></label></div>
-            <label>المقدار المسموع أو المقروء <span class="hint">مثل: من سورة البقرة إلى آخر آل عمران، أو كتاب الإيمان من صحيح البخاري</span><input name="portion" maxlength="200" value="${esc(g.portion)}"></label>
-            <div class="row"><label>الشيخ المقيِّم<input name="examiner" maxlength="80" required value="${esc(g.examiner || ex.examiner)}"></label><label>تاريخ التقييم<input type="date" name="heardAt" required value="${toDateInput(g.heardAt || Date.now())}"></label></div>
-            <label>ملاحظات للطالب <span class="hint">اختياري — تظهر له مع النتيجة</span><textarea name="notes" rows="3" maxlength="1000">${esc(g.notes)}</textarea></label>`, {
-            wide: true, onSubmit: async fd => {
-              const rate = fd.get('rate'), raw = fd.get('score'), set = raw !== '', sc = set ? Math.min(100, Math.max(0, +raw)) : oralRate(rate)[2];
-              const v = { uid: r.uid, userName: r.name || '', examId: id, courseId: ex.courseId, kind: 'oral', rate, score: sc, scoreSet: set, points: null, total: null, pending: 0, passed: rate !== 'fail' && sc >= (+ex.passScore || 60), portion: fd.get('portion').trim(), examiner: fd.get('examiner').trim(), heardAt: fromDateInput(fd.get('heardAt')), notes: fd.get('notes').trim(), gradedAt: Date.now(), by: 'admin' };
-              await DB.set('grades', `${id}_${r.uid}`, v); toast('سُجّل التقييم', 'ok'); route();
-            }
-          });
-        };
-        return;
-      }
-
       /* ---------- التسليمات والتصحيح ---------- */
-      const [sits, grades, enr, acc] = await Promise.all([DB.list('sittings', { examId: id }), DB.list('grades', { examId: id }), DB.list('enrollments', { courseId: ex.courseId }), ex.kind === 'makeup' ? DB.list('examAccess', { examId: id }) : null]);
+      const [sits, grades, enr] = await Promise.all([DB.list('sittings', { examId: id }), DB.list('grades', { examId: id }), DB.list('enrollments', { courseId: ex.courseId })]);
       const gm = Object.fromEntries(grades.map(g => [g.uid, g])), qm = Object.fromEntries(bank.map(q => [q.id, q]));
       sits.sort((a, b) => (a.userName || '').localeCompare(b.userName || '', 'ar'));
-      const eligible = acc ? acc.map(a => ({ uid: a.uid, name: a.name })) : enr.map(en => ({ uid: en.uid, name: en.userName }));
+      const eligible = enr.filter(en => !ex.termId || !en.termId || en.termId === ex.termId).map(en => ({ uid: en.uid, name: en.userName }));
       const absent = eligible.filter(x => !sits.some(s => s.uid === x.uid));
       const ready = sits.filter(s => gradable(ex, s)), ungraded = ready.filter(s => !gm[s.uid]), pend = grades.filter(g => g.pending > 0), rev = grades.filter(g => (g.review || []).length);
       const kpi = (i, n, t, w) => `<div class="kpi" ${w ? 'style="border-color:var(--warn)"' : ''}>${ic(i, 22)}<b>${n}</b><span>${t}</span></div>`;
-      pane.innerHTML = `<div class="kpis">${kpi('users', eligible.length, ex.kind === 'makeup' ? 'مسموح له الإكمالي' : 'طالب في المادة')}${kpi('play', sits.length, 'بدأ الامتحان')}${kpi('check', ready.length, 'سلّم أو انتهى وقته')}${kpi('quiz', ungraded.length, 'لم يُصحَّح بعد', ungraded.length)}${kpi('pen', pend.length, 'ينتظر تصحيحاً يدوياً', pend.length)}${kpi('x', absent.length, 'لم يتقدّم')}</div>
+      pane.innerHTML = `<div class="kpis">${kpi('users', eligible.length, 'طالب في المادة')}${kpi('play', sits.length, 'بدأ الامتحان')}${kpi('check', ready.length, 'سلّم أو انتهى وقته')}${kpi('quiz', ungraded.length, 'لم يُصحَّح بعد', ungraded.length)}${kpi('pen', pend.length, 'ينتظر تصحيحاً يدوياً', pend.length)}${kpi('x', absent.length, 'لم يتقدّم')}</div>
         <div class="toolbar"><div class="grow"><h3 style="margin:0">التسليمات</h3><small class="muted">«تصحيح تلقائي» يصحّح أسئلة الاختيار وصح/خطأ والإجابات القصيرة المطابقة، ويُبقي ما صحّحته يدوياً. المقالي والقصير غير المطابق يُصحَّح من زر «تصحيح» لكل طالب.</small></div>
           <button class="btn btn-primary btn-sm" id="autoG" ${ready.length ? '' : 'disabled'}>${ic('check', 16)} تصحيح تلقائي (${ready.length})</button><button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>
           ${ex.resultsOut ? `<button class="btn btn-ghost btn-sm" id="unpub">${ic('eye', 16)} إخفاء النتائج</button>` : `<button class="btn btn-brass btn-sm" id="pub" ${grades.length ? '' : 'disabled'}>${ic('award', 16)} إعلان النتائج</button>`}</div>
@@ -727,35 +717,160 @@ async function adminExam(id, tab = '') {
   };
 }
 
-/* ===== سجل درجات المادة: كل الامتحانات، المجموع الموزون، وإصدار الشهادات للناجحين ===== */
-async function adminGradebook(cid) {
-  const [c, exams, grades, enr, certs, recs] = await Promise.all([DB.get('courses', cid), DB.list('exams', { courseId: cid }), DB.list('grades', { courseId: cid }), DB.list('enrollments', { courseId: cid }), DB.list('certificates', { courseId: cid }), safeList('records')]);
+/* ================= العلامات: كشف علامات المادة، كشف درجات الطالب، إعادة المادة =================
+   marks/{uid}_{courseId}_{termId|x}: انظر «العلامات وكشف الدرجات» في core.js */
+/* إعادة المادة: يُسجَّل الراسب فيها من جديد في فصل لاحق (يتغيّر فصل تسجيله ويُضاف إلى قيده في ذلك الفصل) */
+async function repeatCourse(r, c, t, attempt) {
+  const now = Date.now(), eid = `${r.uid}_${c.id}`, en = await safeGet('enrollments', eid);
+  if (en) await DB.update('enrollments', eid, { termId: t.id, repeat: attempt, lastAt: now });
+  else await DB.set('enrollments', eid, { uid: r.uid, courseId: c.id, userName: r.name, courseTitle: c.title, completed: [], enrolledAt: now, termId: t.id, by: 'record', repeat: attempt });
+  const gid = `${r.uid}_${t.id}`, g = await safeGet('regs', gid);
+  if (g) await DB.update('regs', gid, { courseIds: [...new Set([...(g.courseIds || []), c.id])], repeatIds: [...new Set([...(g.repeatIds || []), c.id])] });
+  else await DB.set('regs', gid, { uid: r.uid, termId: t.id, termName: t.name, program: 'academy', level: +r.level || +c.term || 1, cohort: r.cohort || '', name: r.name, studentNo: r.studentNo || '', courseIds: [c.id], repeatIds: [c.id], at: now, by: 'repeat' });
+}
+/* الراسبون في فصل (آخر محاولة لكل مادة) — يعيدون موادهم في الفصل التالي عند إنهائه */
+async function carryFailures(term, nextT, recs, courses) {
+  if (!nextT) return 0;
+  const ms = (await safeList('marks', { termId: term.id })).filter(m => m.result === 'fail'), cm = Object.fromEntries(courses.map(c => [c.id, c]));
+  let n = 0;
+  for (const m of ms) {
+    const c = cm[m.courseId], r = recs.find(x => x.uid === m.uid && x.program === 'academy'); if (!c || !r || !['active', 'completed'].includes(r.status)) continue;
+    if ((await safeGet('marks', markId(m.uid, c.id, nextT.id)))) continue;
+    await repeatCourse(r, c, nextT, (+m.attempt || 1) + 1); n++;
+    if (r.status === 'completed') { await DB.update('records', r.id, { status: 'active', level: 4, updatedAt: Date.now() }); r.status = 'active'; }
+  }
+  return n;
+}
+const markWrite = (c, t, row, v) => {
+  const r = computeMark(c, v);
+  return { uid: row.uid, courseId: c.id, termId: t?.id || '', termName: t?.name || '', termStart: +t?.startsAt || 0, program: c.program || '', level: +c.term || 0, order: +c.order || 0, name: row.name || '', studentNo: row.no || '', courseTitle: c.title, hours: +c.hours || '',
+    dist: gradeDist(c), pass: coursePass(c), att: v.att, part: v.part, quiz: v.quiz, final: v.final, src: v.src || {}, total: r.total, result: r.result, word: r.word, attempt: row.attempt, published: !!row.m?.published, updatedAt: Date.now(), by: 'admin' };
+};
+async function adminMarks(cid, tid = '') {
+  const [c, exams, grades, enr, marks, terms, recs, certs] = await Promise.all([DB.get('courses', cid), safeList('exams', { courseId: cid }), safeList('grades', { courseId: cid }), safeList('enrollments', { courseId: cid }), safeList('marks', { courseId: cid }), safeList('terms'), safeList('records'), safeList('certificates', { courseId: cid })]);
   if (!c) return { active: 'results', title: 'غير موجودة', html: '<div class="empty">المادة غير موجودة.</div>' };
-  exams.sort(examSort);
-  const pass = +c.gradePass || 60, gm = Object.fromEntries(grades.map(g => [g.id, g]));
-  const rows = enr.map(en => { const gOf = e => gm[`${e.id}_${en.uid}`]; return { uid: en.uid, name: en.userName, no: (recs.find(r => r.uid === en.uid && r.program === c.program) || {}).studentNo || '', gOf, t: courseTotal(exams, gOf, pass), cert: certs.find(x => x.uid === en.uid) }; })
-    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
-  const cell = (e, g) => !g ? '<span class="muted">—</span>' : e.kind === 'oral' ? `${esc(oralRate(g.rate)?.[1] || '')}<br><small class="muted">${g.score}%</small>` : g.pending ? `<span class="pill warn">ناقص</span>` : `<span style="color:${g.passed ? 'var(--ok)' : 'var(--danger)'}">${g.score}%</span>`;
-  const passed = rows.filter(r => r.t?.passed), toIssue = passed.filter(r => !r.cert);
+  const acad = c.program === 'academy', rel = new Set([...enr.map(e => e.termId), ...marks.map(m => m.termId)].filter(Boolean));
+  const tlist = acad ? terms.filter(t => rel.has(t.id)).sort(termSort) : [];
+  if (acad && !tid) tid = ([...tlist].reverse().find(t => !t.closedAt) || tlist[tlist.length - 1])?.id || '';
+  const t = terms.find(x => x.id === tid) || null, d = gradeDist(c), pass = coursePass(c);
+  const xs = acad ? exams.filter(e => !e.termId || e.termId === tid) : exams, gm = Object.fromEntries(grades.map(g => [g.id, g]));
+  const mm = Object.fromEntries(marks.map(m => [m.id, m])), recOf = uid => recs.find(r => r.uid === uid && r.program === c.program) || recs.find(r => r.uid === uid);
+  const uids = [...new Set([...(acad ? enr.filter(e => e.termId === tid) : enr).map(e => e.uid), ...marks.filter(m => (m.termId || '') === (acad ? tid : '')).map(m => m.uid)])];
+  const rows = uids.map(uid => {
+    const en = enr.find(e => e.uid === uid), m = mm[markId(uid, cid, acad ? tid : '')], rc = recOf(uid);
+    const auto = autoParts(c, xs, e => gm[`${e.id}_${uid}`]);
+    const pick = k => m && (m.src || {})[k] === 'manual' ? m[k] : auto[k] !== undefined ? auto[k] : m ? m[k] : null;
+    return { uid, m, en, auto, name: en?.userName || m?.name || '', no: rc?.studentNo || m?.studentNo || '', rec: rc,
+      attempt: m?.attempt || (marks.filter(x => x.uid === uid && x.termId !== (acad ? tid : '')).length + 1),
+      v: { att: m?.att ?? null, part: m?.part ?? null, quiz: pick('quiz'), final: pick('final'), src: { quiz: m && (m.src || {}).quiz === 'manual' ? 'manual' : auto.quiz !== undefined ? 'auto' : 'manual', final: m && (m.src || {}).final === 'manual' ? 'manual' : auto.final !== undefined ? 'auto' : 'manual' } },
+      cert: certs.find(x => x.uid === uid) };
+  }).sort((a, b) => String(a.no).localeCompare(String(b.no)) || (a.name || '').localeCompare(b.name || '', 'ar'));
+  const pubN = rows.filter(r => r.m?.published).length, sumOk = distSum(d) === 100;
+  const inp = (r, k) => d[k] ? `<input class="mk ${r.v.src?.[k] === 'auto' && r.v[k] != null ? 'auto' : ''}" type="number" step="0.25" min="0" max="${d[k]}" data-u="${r.uid}" data-k="${k}" value="${r.v[k] ?? ''}" aria-label="${GRADE_PARTS.find(p => p[0] === k)[1]}">${(k === 'quiz' || k === 'final') && r.auto[k] !== undefined ? `<small class="mk-src" title="من درجات الامتحانات">${r.v.src[k] === 'auto' ? 'آلي' : 'يدوي'}${k === 'quiz' && r.auto.quizN ? ' ' + r.auto.quizN : ''}</small>` : ''}` : '<span class="muted">—</span>';
+  const title = `كشف علامات — ${c.title}${t ? ' — ' + t.name : ''}`;
   return {
-    active: 'results', title: `سجل الدرجات — ${esc(c.title)}`,
-    actions: `<a class="btn btn-ghost btn-sm" href="#/course/${cid}?t=offx">${ic('prev', 16)} المادة</a><button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>${toIssue.length ? `<button class="btn btn-brass btn-sm" id="iss">${ic('award', 16)} إصدار الشهادات للناجحين (${toIssue.length})</button>` : ''}`,
-    html: !exams.length ? `<div class="empty">${ic('award', 34)}<p>لا امتحانات رسمية في هذه المادة. أضفها من تبويب «الامتحانات الرسمية» في محرر المادة.</p></div>`
-      : `<p class="muted" style="margin-bottom:12px">المجموع = ${exams.filter(e => e.kind !== 'makeup').map(e => `${esc(e.title)} × ${+e.weight || 0}%`).join(' + ')}${exams.some(e => e.kind === 'makeup') ? ' — والإكمالي يحلّ محل النهائي إن كان أعلى' : ''}. النجاح من ${pass}%. ${passed.length} ناجح من ${rows.length}.</p>
-      <div class="tbl-wrap"><table><thead><tr><th>الطالب</th><th>الرقم</th>${exams.map(e => `<th><a href="#/exam/${e.id}/grading" title="${esc(examKindName(e.kind))}">${esc(trim(e.title, 22))}</a><br><small class="muted">${e.kind === 'makeup' ? 'إكمالي' : `${+e.weight || 0}%`}${e.resultsOut ? ' ✓' : ''}</small></th>`).join('')}<th>المجموع</th><th>النتيجة</th><th>الشهادة</th></tr></thead>
-      <tbody>${rows.map(r => `<tr><td><strong>${esc(r.name)}</strong></td><td dir="ltr">${esc(r.no) || '—'}</td>${exams.map(e => `<td>${cell(e, r.gOf(e))}</td>`).join('')}<td><strong>${r.t ? r.t.total + '%' : '—'}</strong>${r.t?.viaMakeup ? '<br><small class="muted">بالإكمالي</small>' : ''}</td>
-        <td>${!r.t ? '—' : r.t.missing ? '<span class="pill warn">غير مكتمل</span>' : `<span class="pill ${r.t.passed ? 'ok' : 'no'}">${r.t.passed ? 'ناجح' : 'راسب'}</span>`}</td><td>${r.cert ? `<a class="icon-btn sm" href="index.html#/cert/${r.cert.id}" target="_blank" title="${esc(r.cert.id)}">${ic('award', 16)}</a>` : '—'}</td></tr>`).join('')}</tbody></table></div>
-      <p class="hint" style="margin-top:10px">✓ = النتائج معلنة للطلاب. «ناقص» = فيه أسئلة مقالية لم تُصحَّح. «غير مكتمل» = تنقصه درجة امتحان أو تصحيح.</p>`,
+    active: 'results', title: `كشف العلامات — ${esc(c.title)}`,
+    actions: `<a class="btn btn-ghost btn-sm" href="#/course/${cid}?t=offx">${ic('prev', 16)} المادة</a>`,
+    html: `<form class="form panel dist-form" id="dist"><div class="toolbar" style="margin:0 0 6px"><h3 class="grow" style="margin:0">${ic('chart', 18)} توزيع علامة المادة <small class="muted" style="font-weight:400">من 100</small></h3><span class="pill ${sumOk ? 'ok' : 'warn'}" id="dsum">المجموع ${distSum(d)}</span><button class="btn btn-primary btn-sm">حفظ التوزيع</button></div>
+        <div class="row dist-row">${GRADE_PARTS.map(([k, n, i]) => `<label>${ic(i, 14)} ${n}<input name="${k}" type="number" min="0" max="100" value="${d[k]}"></label>`).join('')}<label>درجة النجاح<input name="pass" type="number" min="1" max="100" value="${pass}"></label><label>حدّ أدنى للنهائي % <span class="hint">0 = بلا حد</span><input name="finalMin" type="number" min="0" max="100" value="${+c.finalMin || 0}"></label></div>
+        <p class="hint">المذاكرة = متوسط درجات المذاكرات المنشورة × حصّتها، والنهائي = درجة الامتحان النهائي × حصّته (تُسحب تلقائياً، ويمكنك تعديلها يدوياً). الحضور والمشاركة ترصدهما أنت.</p></form>
+      <div class="toolbar" style="margin-top:20px">${acad ? `<label class="grow" style="max-width:420px;min-width:280px">الفصل<select id="tsel">${tlist.length ? tlist.map(x => `<option value="${x.id}" ${x.id === tid ? 'selected' : ''}>${esc(x.name)}</option>`).join('') : '<option>لا فصول فيها طلاب</option>'}</select></label>` : `<span class="grow muted">${esc(programName(c.program))} — كشف واحد للمادة</span>`}
+        <button class="btn btn-ghost btn-sm" id="pull" ${xs.length ? '' : 'disabled'} title="يعيد المذاكرة والنهائي من درجات الامتحانات">${ic('download', 15)} سحب من الامتحانات</button>
+        <button class="btn btn-primary btn-sm" id="saveM" ${rows.length ? '' : 'disabled'}>${ic('check', 15)} حفظ العلامات</button>
+        ${pubN ? `<button class="btn btn-ghost btn-sm" id="unpubM">${ic('eye', 15)} إلغاء الاعتماد</button>` : ''}<button class="btn btn-brass btn-sm" id="pubM" ${rows.length ? '' : 'disabled'}>${ic('award', 15)} اعتماد ونشر للطلاب</button>
+        <button class="btn btn-ghost btn-sm" id="xls" ${rows.length ? '' : 'disabled'}>${ic('sheet', 15)} Excel</button><button class="btn btn-ghost btn-sm" id="prn" ${rows.length ? '' : 'disabled'}>${ic('print', 15)} طباعة</button></div>
+      <div id="msum" class="msum"></div>
+      ${rows.length ? `<div class="tbl-wrap"><table class="marks-tbl"><thead><tr><th>الطالب</th>${GRADE_PARTS.map(([k, n]) => `<th>${n}<br><small class="muted">من ${d[k]}</small></th>`).join('')}<th>المجموع</th><th>التقدير</th><th>النتيجة</th><th>الحالة</th><th></th></tr></thead><tbody>${rows.map(r => `<tr data-row="${r.uid}">
+        <td><strong>${esc(r.name)}</strong><br><small class="muted" dir="ltr">${esc(r.no) || '—'}</small>${+r.attempt > 1 ? ' <span class="pill warn">إعادة</span>' : ''}</td>
+        ${GRADE_PARTS.map(([k]) => `<td>${inp(r, k)}</td>`).join('')}<td><b data-tot></b></td><td data-word></td><td data-res></td>
+        <td>${r.m ? `<span class="pill ${r.m.published ? 'ok' : 'mut'}">${r.m.published ? 'معتمدة' : 'محفوظة'}</span>` : '<span class="pill mut">جديدة</span>'}${r.cert ? ` <a href="index.html#/cert/${r.cert.id}" target="_blank" title="الشهادة">${ic('award', 15)}</a>` : ''}</td>
+        <td><a class="icon-btn sm" href="#/transcript/${r.uid}" title="كشف درجات الطالب">${ic('file', 16)}</a></td></tr>`).join('')}</tbody></table></div>
+        <div class="toolbar" style="margin-top:14px"><span class="grow hint">«آلي» = من درجات الامتحانات، وأي تعديل يدوي يُحفظ ويبقى. الطالب لا يرى علامته حتى «اعتماد ونشر».</span>
+          <button class="btn btn-ghost btn-sm" id="certs">${ic('award', 15)} إصدار الشهادات للناجحين</button>${acad ? `<button class="btn btn-ghost btn-sm" id="rep">${ic('repeat', 15)} إعادة المادة للراسبين</button>` : ''}</div>`
+        : `<div class="empty">${ic('users', 34)}<p>${acad && !tlist.length ? 'لا طلاب مقيّدين في هذه المادة في أي فصل بعد.' : 'لا يوجد طلاب في هذا الكشف.'}</p></div>`}`,
     mount() {
-      $('#csv') && ($('#csv').onclick = () => downloadFile(`gradebook-${cid}.csv`, toCSV([['الطالب', 'الرقم الجامعي', ...exams.map(e => e.title), 'المجموع', 'النتيجة'], ...rows.map(r => [r.name, r.no, ...exams.map(e => { const g = r.gOf(e); return !g ? '' : e.kind === 'oral' ? `${oralRate(g.rate)?.[1] || ''} ${g.score}%` : g.pending ? 'ناقص' : g.score; }), r.t?.total ?? '', !r.t ? '' : r.t.missing ? 'غير مكتمل' : r.t.passed ? 'ناجح' : 'راسب'])])));
-      $('#iss') && ($('#iss').onclick = async ev => {
-        if (!(await confirmBox(`إصدار شهادة «${esc(c.title)}» لـ${toIssue.length} طالب ناجح، بدرجة المجموع؟ تظهر في حساب كل طالب ويمكن التحقق منها.`, 'إصدار'))) return;
-        ev.target.disabled = true;
-        try {
-          for (const r of toIssue) { const u = await safeGet('users', r.uid), code = `BYN-${rnd4()}-${rnd4()}`; await DB.set('certificates', code, { uid: r.uid, courseId: cid, name: u?.name || r.name, nameEn: u?.nameEn || '', courseTitle: c.title, courseTitleEn: c.titleEn || '', instructor: c.instructor || '', instructorEn: c.instructorEn || '', certType: c.certType || '', score: Math.round(r.t.total), issuedAt: Date.now() }); }
-          toast(`صدرت ${toIssue.length} شهادة`, 'ok'); route();
-        } catch (err) { toast(err.message, 'err'); ev.target.disabled = false; }
+      const val = (uid, k) => { const i = $(`.mk[data-u="${uid}"][data-k="${k}"]`); return !i || i.value === '' ? null : Math.min(d[k], Math.max(0, +i.value)); };
+      const cur = r => ({ att: val(r.uid, 'att'), part: val(r.uid, 'part'), quiz: val(r.uid, 'quiz'), final: val(r.uid, 'final'), src: r.v.src });
+      const paint = () => {
+        let p = 0, f = 0, inc = 0;
+        for (const r of rows) { const tr = $(`tr[data-row="${r.uid}"]`), x = computeMark(c, cur(r)); $('[data-tot]', tr).textContent = x.result === 'incomplete' ? '—' : numTxt(x.total); $('[data-word]', tr).textContent = x.word; $('[data-res]', tr).innerHTML = stPill(RESULT_ST, x.result) + (x.lowFinal ? '<br><small class="muted">دون حدّ النهائي</small>' : ''); tr.classList.toggle('fail', x.result === 'fail'); x.result === 'pass' ? p++ : x.result === 'fail' ? f++ : inc++; }
+        $('#msum').innerHTML = rows.length ? `<span>${rows.length} طالب</span><span class="ok">${p} ناجح</span><span class="no">${f} راسب</span><span>${inc} غير مكتمل</span><span>${pubN} معتمدة</span>` : '';
+      };
+      $$('.mk').forEach(i => i.oninput = () => { const r = rows.find(x => x.uid === i.dataset.u); if (i.dataset.k === 'quiz' || i.dataset.k === 'final') { r.v.src[i.dataset.k] = 'manual'; i.classList.remove('auto'); const s2 = i.nextElementSibling; if (s2?.classList.contains('mk-src')) s2.textContent = 'يدوي'; } paint(); });
+      paint();
+      $('#tsel') && ($('#tsel').onchange = e => go(`/marks/${cid}/${e.target.value}`));
+      $('#dist').oninput = () => { const fd = new FormData($('#dist')), n = GRADE_PARTS.reduce((a, [k]) => a + (+fd.get(k) || 0), 0), b = $('#dsum'); b.textContent = 'المجموع ' + n; b.className = 'pill ' + (n === 100 ? 'ok' : 'warn'); };
+      $('#dist').onsubmit = async e => {
+        e.preventDefault(); const fd = new FormData(e.target), gd = Object.fromEntries(GRADE_PARTS.map(([k]) => [k, Math.max(0, +fd.get(k) || 0)]));
+        if (distSum(gd) !== 100) { toast('مجموع التوزيع يجب أن يكون 100', 'err'); return; }
+        await DB.update('courses', cid, { gradeDist: gd, gradePass: Math.min(100, Math.max(1, +fd.get('pass') || 60)), finalMin: Math.min(100, Math.max(0, +fd.get('finalMin') || 0)) });
+        toast('حُفظ التوزيع — احفظ العلامات لإعادة حسابها', 'ok'); route();
+      };
+      const save = async (publish) => {
+        for (const r of rows) { const v = cur(r), w = markWrite(c, t, r, v); if (publish !== undefined) w.published = publish; await DB.set('marks', markId(r.uid, cid, acad ? tid : ''), w); }
+      };
+      $('#pull') && ($('#pull').onclick = () => { for (const r of rows) for (const k of ['quiz', 'final']) { if (r.auto[k] === undefined) continue; const i = $(`.mk[data-u="${r.uid}"][data-k="${k}"]`); if (!i) continue; i.value = r.auto[k] ?? ''; r.v.src[k] = 'auto'; i.classList.add('auto'); const s2 = i.nextElementSibling; if (s2?.classList.contains('mk-src')) s2.textContent = 'آلي'; } paint(); toast('سُحبت الدرجات — اضغط «حفظ العلامات»'); });
+      $('#saveM') && ($('#saveM').onclick = async ev => { ev.target.disabled = true; try { await save(); toast('حُفظت العلامات', 'ok'); route(); } catch (err) { toast(err.message, 'err'); ev.target.disabled = false; } });
+      $('#pubM') && ($('#pubM').onclick = async ev => {
+        const inc = rows.filter(r => computeMark(c, cur(r)).result === 'incomplete').length;
+        if (!(await confirmBox(`اعتماد العلامات ونشرها لـ${rows.length} طالب؟ يرى كل طالب علامته ونتيجته في «حسابي» وفي صفحة المادة.${inc ? `<br><b style="color:var(--warn)">${inc} علامة غير مكتملة</b> — تظهر للطالب «غير مكتمل».` : ''}`, 'اعتماد ونشر'))) return;
+        ev.target.disabled = true; try { await save(true); toast('اعتُمدت العلامات ونُشرت', 'ok'); route(); } catch (err) { toast(err.message, 'err'); ev.target.disabled = false; }
       });
+      $('#unpubM') && ($('#unpubM').onclick = async () => { if (await confirmBox('إخفاء العلامات عن الطلاب؟', 'إلغاء الاعتماد')) { await save(false); toast('أُلغي الاعتماد'); route(); } });
+      const sheetRows = () => [[title], ['الرقم الجامعي', 'الطالب', ...GRADE_PARTS.map(([k, n]) => `${n} (${d[k]})`), 'المجموع', 'التقدير', 'النتيجة', 'المحاولة'], ...rows.map(r => { const v = cur(r), x = computeMark(c, v); return [r.no, r.name, ...GRADE_PARTS.map(([k]) => v[k] ?? ''), x.result === 'incomplete' ? '' : x.total, x.word, RESULT_ST[x.result][0], r.attempt]; })];
+      $('#xls') && ($('#xls').onclick = () => exportXlsx(`marks-${c.title}${t ? '-' + t.name : ''}.xlsx`, [{ name: 'كشف العلامات', rows: sheetRows() }]));
+      $('#prn') && ($('#prn').onclick = () => { const l = sheetRows().slice(1); printHtml(title, docHead('كشف علامات المادة', `${esc(c.title)}${t ? ' — ' + esc(t.name) : ''} — النجاح من ${pass}`) + `<table class="print-tbl"><thead><tr>${l[0].map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${l.slice(1).map(r => `<tr>${r.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table><div class="sign"><span>توقيع مدرّس المادة</span><span>توقيع رئيس القسم</span><span>ختم الأكاديمية</span></div>`); });
+      $('#certs') && ($('#certs').onclick = async ev => {
+        const l = rows.filter(r => !r.cert && computeMark(c, cur(r)).result === 'pass');
+        if (!l.length) { toast('لا ناجحين بلا شهادة'); return; }
+        if (!(await confirmBox(`إصدار شهادة «${esc(c.title)}» لـ${l.length} طالب ناجح، بالمجموع؟`, 'إصدار'))) return;
+        ev.target.disabled = true;
+        try { for (const r of l) { const u = await safeGet('users', r.uid), code = `BYN-${rnd4()}-${rnd4()}`; await DB.set('certificates', code, { uid: r.uid, courseId: cid, name: u?.name || r.name, nameEn: u?.nameEn || '', courseTitle: c.title, courseTitleEn: c.titleEn || '', instructor: c.instructor || '', instructorEn: c.instructorEn || '', certType: c.certType || '', score: Math.round(computeMark(c, cur(r)).total), issuedAt: Date.now() }); } toast(`صدرت ${l.length} شهادة`, 'ok'); route(); }
+        catch (err) { toast(err.message, 'err'); ev.target.disabled = false; }
+      });
+      $('#rep') && ($('#rep').onclick = () => {
+        const fails = rows.filter(r => r.m?.result === 'fail' && r.rec);
+        if (!fails.length) { toast('لا راسبين بعلامات محفوظة في هذا الكشف — احفظ العلامات أولاً'); return; }
+        const opts = openTerms(terms).filter(x => x.id !== tid);
+        if (!opts.length) { toast('لا يوجد فصل قادم أو جارٍ غير هذا — أنشئه من «القيد والفصول»', 'err'); return; }
+        modal('إعادة المادة للراسبين', `<p>${fails.map(r => esc(r.name)).join('، ')}</p><label>الفصل الذي يعيدون فيه المادة<select name="t">${opts.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></label><p class="hint">يُسجَّلون في المادة في ذلك الفصل (المحاولة التالية)، ويتقدّمون لامتحاناته، وتحلّ علامتهم الجديدة محل الرسوب في المعدل التراكمي. يتم هذا تلقائياً أيضاً عند «إنهاء الفصل».</p>`, {
+          submitText: 'إعادة المادة', onSubmit: async fd => { const nt = terms.find(x => x.id === fd.get('t')); for (const r of fails) await repeatCourse(r.rec, c, nt, (+r.attempt || 1) + 1); toast(`سُجّل ${fails.length} طالب لإعادة المادة في ${nt.name}`, 'ok'); }
+        });
+      });
+    }
+  };
+}
+/* كشف درجات طالب: كل فصوله ومعدلاته (المعتمد وغير المعتمد للمشرف) */
+async function adminTranscript(uid) {
+  const [u, recs, marks] = await Promise.all([safeGet('users', uid), safeList('records', { uid }), safeList('marks', { uid })]);
+  const r = recs.find(x => x.program === 'academy') || recs[0], name = u?.name || marks[0]?.name || '—';
+  const pub = marks.filter(m => m.published), sub = `${esc(name)}${r ? ` — الرقم الجامعي <span dir="ltr">${esc(r.studentNo)}</span> — ${esc(programName(r.program))}${r.cohort ? ' — ' + esc(r.cohort) : ''}` : ''}`;
+  return {
+    active: 'results', title: `كشف درجات — ${esc(name)}`,
+    actions: `<a class="btn btn-ghost btn-sm" href="#/results/marks">${ic('prev', 16)} الكشوف</a><button class="btn btn-ghost btn-sm" id="xls" ${marks.length ? '' : 'disabled'}>${ic('sheet', 16)} Excel</button><button class="btn btn-primary btn-sm" id="prn" ${pub.length ? '' : 'disabled'} title="المعتمد فقط">${ic('print', 16)} طباعة</button>`,
+    html: `<div class="panel" style="margin-bottom:20px"><dl class="facts" style="margin:0"><div><dt>الطالب</dt><dd>${esc(name)}</dd></div><div><dt>اسم المستخدم</dt><dd dir="ltr">${esc(u?.username || '—')}</dd></div>${r ? `<div><dt>الرقم الجامعي</dt><dd dir="ltr">${esc(r.studentNo)}</dd></div><div><dt>البرنامج</dt><dd>${esc(programName(r.program))} — ${esc(recLevel(r))}</dd></div><div><dt>الدفعة</dt><dd>${esc(r.cohort || '—')}</dd></div><div><dt>حالة القيد</dt><dd>${stPill(REC_ST, r.status)}</dd></div>` : ''}</dl></div>
+      ${transcriptHtml(marks, { admin: true, empty: 'لا علامات مرصودة لهذا الطالب بعد.' })}`,
+    mount() {
+      $('#xls').onclick = () => exportXlsx(`transcript-${name}.xlsx`, [{ name: 'كشف الدرجات', rows: [[`كشف درجات: ${name}`, r ? `الرقم الجامعي: ${r.studentNo}` : ''], [], ...transcriptRows(marks)] }]);
+      $('#prn').onclick = () => printHtml('كشف درجات ' + name, docHead('كشف الدرجات', sub) + transcriptHtml(pub) + '<div class="sign"><span>شؤون الطلاب</span><span>عميد الأكاديمية</span><span>الختم</span></div>');
+    }
+  };
+}
+/* تبويب «كشوف العلامات»: كل مادة فيها طلاب، وحالة رصد علاماتها واعتمادها */
+async function adminMarksIndex() {
+  const [courses, enr, marks, users, recs] = await Promise.all([safeList('courses'), safeList('enrollments'), safeList('marks'), safeList('users'), safeList('records')]);
+  const list = courses.filter(c => enr.some(e => e.courseId === c.id) || marks.some(m => m.courseId === c.id)).map(c => {
+    const ms = marks.filter(m => m.courseId === c.id);
+    return { c, n: enr.filter(e => e.courseId === c.id).length, saved: ms.length, pub: ms.filter(m => m.published).length, pass: ms.filter(m => m.result === 'pass').length, fail: ms.filter(m => m.result === 'fail').length };
+  }).sort((a, b) => ({ academy: 0, ijaza: 1 }[a.c.program] ?? 2) - ({ academy: 0, ijaza: 1 }[b.c.program] ?? 2) || planSort(a.c, b.c));
+  return {
+    active: 'results', title: 'الامتحانات والنتائج',
+    html: `${resTabs('marks')}<div class="toolbar"><label class="searchbox grow">${ic('search', 18)}<span class="sr">بحث</span><input id="sq" placeholder="كشف درجات طالب: ابحث بالاسم أو الرقم الجامعي"></label></div><div id="sres" class="rowlist" style="margin-bottom:18px"></div>
+      ${list.length ? `<div class="tbl-wrap"><table><thead><tr><th>المادة</th><th>البرنامج</th><th>الطلاب</th><th>مرصودة</th><th>معتمدة</th><th>ناجح / راسب</th><th></th></tr></thead><tbody>${list.map(x => `<tr><td><a href="#/marks/${x.c.id}"><strong>${esc(x.c.title)}</strong></a><br><small class="muted">${esc(distLine(x.c))}</small></td><td>${esc(programName(x.c.program))}${termLabel(x.c.term) ? `<br><small class="muted">${esc(termLabel(x.c.term))}</small>` : ''}</td><td>${x.n}</td><td>${x.saved}</td><td>${x.pub ? `<span class="pill ok">${x.pub}</span>` : '—'}</td><td>${x.saved ? `<span style="color:var(--ok)">${x.pass}</span> / <span style="color:var(--danger)">${x.fail}</span>` : '—'}</td><td><a class="btn btn-ghost btn-sm" href="#/marks/${x.c.id}">${ic('sheet', 15)} الكشف</a></td></tr>`).join('')}</tbody></table></div>`
+        : `<div class="empty">${ic('sheet', 34)}<p>لا مواد فيها طلاب بعد.</p></div>`}`,
+    mount() {
+      $('#sq').oninput = e => { const q = e.target.value.trim().toLowerCase(); const l = q.length < 2 ? [] : users.filter(u => (u.name + ' ' + u.username + ' ' + recs.filter(r => r.uid === u.id).map(r => r.studentNo).join(' ')).toLowerCase().includes(q)).slice(0, 8);
+        $('#sres').innerHTML = l.map(u => `<a class="ritem" href="#/transcript/${u.id}">${ic('file', 18)}<div class="grow"><strong>${esc(u.name)}</strong><br><small dir="ltr">${esc(recs.filter(r => r.uid === u.id).map(r => r.studentNo).join(' · ') || u.username)}</small></div><small>${marks.filter(m => m.uid === u.id).length} علامة</small></a>`).join(''); };
     }
   };
 }
@@ -1066,7 +1181,7 @@ async function adminTerm(id) {
           <p class="hint" style="margin-top:8px">يُسجَّل كل مقيّد في مواد مستواه المنشورة تلقائياً، وتُضاف له المواد التي تُنشر لاحقاً عند نشرها.</p>`}</div>
         <div class="panel close-term ${closed ? 'done' : ''}"><h3>${ic(closed ? 'check' : 'up', 18)} ${closed ? 'أُنهي الفصل' : 'إنهاء الفصل وترفيع الطلاب'}</h3>
           ${closed ? `<p class="muted">أُنهي في ${fmtDT(t.closedAt)}${t.closeSummary ? ` — ${esc(t.closeSummary)}` : ''}.</p><button type="button" class="btn btn-ghost btn-sm" id="reopen">إعادة فتح الفصل</button>`
-          : `<p class="muted" style="margin-bottom:10px">يرفّع كل مقيّد منتظم إلى المستوى التالي، ويُنهي دراسة من في الفصل الرابع («أنهى المواد»)، ويقيّد المرفَّعين في ${nextT ? `«<b>${esc(nextT.name)}</b>» (${fmtDate(nextT.startsAt)}) فتُفتح لهم مواده` : 'الفصل التالي — <b>ولا يوجد فصل تالٍ بعد</b>: أنشئه أولاً ليُقيَّدوا فيه تلقائياً'}.</p>
+          : `<p class="muted" style="margin-bottom:10px">يرفّع كل مقيّد منتظم إلى المستوى التالي، ويُنهي دراسة من في الفصل الرابع («أنهى المواد»)، ويسجّل الراسبين لإعادة موادهم، ويقيّد المرفَّعين في ${nextT ? `«<b>${esc(nextT.name)}</b>» (${fmtDate(nextT.startsAt)}) فتُفتح لهم مواده` : 'الفصل التالي — <b>ولا يوجد فصل تالٍ بعد</b>: أنشئه أولاً ليُقيَّدوا فيه تلقائياً'}.</p>
             <p id="cp" class="hint"></p><button type="button" class="btn btn-brass btn-sm" id="closeT">${ic('up', 16)} إنهاء الفصل</button>`}</div>
       </div></div>
       <div class="panel" style="margin-top:20px"><div class="toolbar" style="margin:0 0 10px"><h3 class="grow" style="margin:0">التقويم: الامتحانات والأحداث</h3><button class="btn btn-ghost btn-sm" id="addE">${ic('plus', 16)} موعد جديد</button></div><div id="evl"></div>
@@ -1141,7 +1256,8 @@ async function adminTerm(id) {
             }));
             b.textContent = `جارٍ الترفيع… ${up + done}/${pl.length}`;
           }
-          const sum = `رُفّع ${up}${done ? `، وأنهى ${done} البرنامج` : ''}${nextT && up ? ` — قُيّدوا في ${nextT.name}` : ''}`;
+          const rp = await carryFailures(t, nextT, recs, courses);
+          const sum = `رُفّع ${up}${done ? `، وأنهى ${done} البرنامج` : ''}${nextT && up ? ` — قُيّدوا في ${nextT.name}` : ''}${rp ? ` — و${rp} مادة يعيدها الراسبون` : ''}`;
           await DB.update('terms', id, { closedAt: Date.now(), closeSummary: sum, updatedAt: Date.now() }); toast(`أُنهي الفصل: ${sum}`, 'ok'); route();
         } catch (err) { toast(err.message, 'err'); b.disabled = false; }
       });
@@ -1631,7 +1747,7 @@ service cloud.firestore {
 
     // ===== الامتحانات الرسمية =====
     // الامتحان يبدأ على السيرفر فقط (Cloud Function startExam بصلاحيات المشرف، لا تمر بهذه القواعد):
-    // تتحقق من التسجيل والموعد وصلاحية الإكمالي، وتسحب أسئلة الطالب، وتنشئ جلسته sittings وورقته الخاصة sitPapers.
+    // تتحقق من التسجيل وفصل الطالب والموعد، وتسحب أسئلة الطالب، وتنشئ جلسته sittings وورقته الخاصة sitPapers.
     // exams: بيانات عامة بلا أسئلة. examPapers (بنك الأسئلة) و examKeys (الإجابات): للمشرف فقط — لا يقرؤها أي طالب.
     // sitPapers: ورقة الطالب (أسئلته فقط بلا إجابات) — يقرؤها صاحبها. sittings: يعدّل الطالب إجاباته ويسلّم قبل انتهاء وقته فقط.
     // grades: يكتبها المشرف أو السيرفر، ويقرؤها الطالب بعد إعلان النتائج (resultsOut).
@@ -1649,7 +1765,6 @@ service cloud.firestore {
     match /exams/{id}      { allow read: if isAdmin() || resource.data.published == true; allow write: if isAdmin(); }
     match /examPapers/{id} { allow read, write: if isAdmin(); }
     match /examKeys/{id}   { allow read, write: if isAdmin(); }
-    match /examAccess/{id} { allow read: if ownRead(); allow write: if isAdmin(); }
     match /sitPapers/{id}  { allow read: if ownRead(); allow write: if isAdmin(); }
     match /sittings/{id} {
       allow read: if ownRead();
@@ -1661,6 +1776,14 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // العلامات {uid}_{courseId}_{termId|x}: حضور ومشاركة ومذاكرة ونهائي ومجموع ونتيجة — يرصدها المشرف، ويراها الطالب بعد اعتمادها (published)
+    match /marks/{id} {
+      allow read: if isAdmin() || resource == null || (own(resource.data) && resource.data.get('published', false) == true);
+      allow write: if isAdmin();
+    }
+    // الأسئلة الشائعة: يقرؤها الجميع، ويكتبها المشرف
+    match /faqs/{id} { allow read: if true; allow write: if isAdmin(); }
+
     // محاولات «الاختبار الذاتي» (تدريبي، يُصحَّح في المتصفح)
     match /attempts/{id} {
       allow read: if isAdmin() || own(resource.data);
@@ -1668,7 +1791,8 @@ service cloud.firestore {
       allow update, delete: if isAdmin();
     }
   }
-}`;
+}
+`;
 
 async function adminSettings() {
   const st = S.settings;
@@ -1689,16 +1813,22 @@ async function adminSettings() {
           <label>كلمة مرور جديدة<input name="p" type="password" required minlength="6" dir="ltr" autocomplete="new-password"></label>
           <div><button class="btn btn-primary">تغيير بيانات الدخول</button></div></form>` : ''}
         <div class="panel"><h3>البيانات</h3><p class="muted" style="margin-bottom:14px">${S.live ? 'البيانات محفوظة في Firebase وتظهر لكل الأجهزة.' : 'البيانات الآن محفوظة في هذا المتصفح فقط، ولن يراها الطلاب على أجهزتهم حتى تربط Firebase.'}</p>
-          <div class="hero-cta" style="margin:0"><button class="btn btn-ghost btn-sm" id="seed">${ic('plus', 16)} إضافة دورات تجريبية</button><button class="btn btn-ghost btn-sm" id="exp">${ic('download', 16)} نسخة احتياطية</button>${!S.live ? `<label class="btn btn-ghost btn-sm">${ic('upload', 16)} استعادة نسخة<input type="file" id="imp" accept=".json" hidden></label>` : ''}</div></div>
+          <div class="hero-cta" style="margin:0"><button class="btn btn-ghost btn-sm" id="seed">${ic('plus', 16)} إضافة بيانات تجريبية كاملة</button><button class="btn btn-ghost btn-sm danger-t" id="unseed">${ic('trash', 16)} حذف البيانات التجريبية</button><button class="btn btn-ghost btn-sm" id="exp">${ic('download', 16)} نسخة احتياطية</button>${!S.live ? `<label class="btn btn-ghost btn-sm">${ic('upload', 16)} استعادة نسخة<input type="file" id="imp" accept=".json" hidden></label>` : ''}</div></div>
       </div></div>
       <form class="panel form" id="fp" style="margin-top:20px"><div class="toolbar" style="margin:0"><h3 class="grow">الصفحات والتواصل</h3><a class="btn btn-ghost btn-sm" href="index.html#/contact" target="_blank">${ic('eye', 16)} معاينة</a><button class="btn btn-primary btn-sm">حفظ</button></div>
-        <div class="row"><label>${ic('whatsapp', 15)} رقم واتساب <span class="hint">بالصيغة الدولية، مثل 9665xxxxxxxx</span><input name="whatsapp" dir="ltr" inputmode="tel" value="${esc(st.whatsapp || (!st.email && /^[+\d\s-]{7,}$/.test(st.contact || '') ? st.contact : ''))}"></label>
-        <label>${ic('mail', 15)} البريد الإلكتروني<input name="email" type="email" dir="ltr" value="${esc(st.email || (/@/.test(st.contact || '') ? st.contact : ''))}"></label></div>
+        <fieldset class="fset"><legend>${ic('phone', 16)} أرقام التواصل <span class="hint" style="font-family:var(--body)">— من أي دولة، وتظهر كلها في صفحة التواصل والتذييل</span></legend>
+          <div id="phl"></div><div><button type="button" class="btn btn-ghost btn-sm" id="addPh">${ic('plus', 15)} رقم آخر</button></div>
+          <label style="max-width:320px">الدولة الافتراضية في حقول الهاتف<select name="defaultCc">${COUNTRIES.map(([k, n, d]) => `<option value="${d}" ${defaultCc() === d && k === (COUNTRIES.find(x => x[2] === defaultCc()) || [])[0] ? 'selected' : ''}>${n} +${d}</option>`).join('')}</select></label></fieldset>
+        <label>${ic('mail', 15)} البريد الإلكتروني<input name="email" type="email" dir="ltr" value="${esc(st.email || (/@/.test(st.contact || '') ? st.contact : ''))}" style="max-width:420px"></label>
         <div class="row">${SOCIALS.map(([k, t]) => `<label>${ic(k, 15)} ${t}<input name="so_${k}" type="url" dir="ltr" placeholder="https://" value="${esc((st.social || {})[k])}"></label>`).join('')}</div>
         <label class="check"><input type="checkbox" name="allowMessages" ${st.allowMessages !== false ? 'checked' : ''}> إظهار نموذج «أرسل رسالة» في صفحة التواصل (تصل الرسائل إلى قسم «الرسائل»)</label>
         <label>صفحة «عن المنصة» <span class="hint">افصل الفقرات بسطر فارغ. ## عنوان، - عنصر قائمة، 1. عنصر مرقّم، {name} اسم المنصة. إن تركته فارغاً تُعرض النبذة المختصرة.</span><textarea name="aboutLong" rows="9">${esc(st.aboutLong)}</textarea></label>
         <label>شروط الاستخدام وسياسة الخصوصية <span class="hint">بنفس التنسيق. يظهر رابطها في التذييل حين تكتبها.</span><textarea name="terms" rows="7">${esc(st.terms)}</textarea></label>
       </form>
+      <form class="panel form" id="fcat" style="margin-top:20px"><div class="toolbar" style="margin:0"><h3 class="grow">التصنيفات</h3></div>
+        <p class="hint">تظهر قائمةً منسدلة عند إنشاء الدورة وتعديلها، وفلاتر في صفحة الدورات. أضف ما تشاء، أو من خيار «تصنيف جديد» في محرر الدورة.</p>
+        <div class="cat-chips" id="catl"></div>
+        <div class="row" style="max-width:520px"><input name="cat" maxlength="40" placeholder="تصنيف جديد، مثل: علوم الحديث"><button class="btn btn-primary btn-sm" style="justify-self:start">${ic('plus', 15)} إضافة</button></div></form>
       <form class="panel form" id="fac" style="margin-top:20px"><div class="toolbar" style="margin:0"><h3 class="grow">الأكاديمية والبرامج</h3><a class="btn btn-ghost btn-sm" href="index.html#/programs" target="_blank">${ic('eye', 16)} معاينة</a><button class="btn btn-primary btn-sm">حفظ</button></div>
         <p class="hint">تظهر في صفحة «البرامج الدراسية» والرئيسية. جدول المواد يُبنى من الدورات المصنّفة «البرنامج الأكاديمي» (من محرر الدورة أو زر «استيراد الخطة الدراسية» في قسم الدورات).</p>
         <label>الاعتماد <span class="hint">سطر يظهر تحت عنوان صفحة البرامج</span><input name="accredit" value="${esc(st.accredit)}"></label>
@@ -1715,7 +1845,8 @@ async function adminSettings() {
           <li>من <b>Authentication ← Users ← Add user</b> أنشئ حساب المشرف ببريدك وكلمة مرور، وانسخ الـ <b>User UID</b>.</li>
           <li>في <b>Firestore</b> أنشئ مجموعة اسمها <code>admins</code>، واجعل معرّف المستند هو الـ UID الذي نسخته، وأضف حقلاً <code>name</code> باسمك.</li>
           <li>ارفع الملف على Netlify (اسحب المجلد إلى app.netlify.com/drop)، ثم أضف دومين Netlify في <b>Authentication ← Settings ← Authorized domains</b>.</li>
-          <li>افتح <code>admin.html</code> وادخل بالبريد وكلمة المرور، ومن هنا اضغط «إضافة دورات تجريبية» إن أردت محتوى للبدء.</li>
+          <li>افتح رابط لوحة التحكم الخاص بك وادخل بالبريد وكلمة المرور، ومن هنا اضغط «إضافة بيانات تجريبية كاملة» إن أردت محتوى للتجربة.</li>
+          <li><b>مرفقات الدروس</b>: من <b>Build ← Storage</b> اضغط Get started (على خطة Blaze). قواعدها في <code>storage.rules</code> وتُنشر تلقائياً مع القواعد من GitHub. بدونها تعمل المرفقات بالروابط فقط.</li>
           <li><b>الامتحانات الرسمية</b> تحتاج Cloud Functions (خطة Blaze). تُنشر تلقائياً من GitHub (ملف <code>.github/workflows/deploy-firebase.yml</code> مع سرّ <code>FIREBASE_SERVICE_ACCOUNT</code> في المستودع)، أو يدوياً: ثبّت Node.js، ثم في مجلد المشروع: <code>npm i -g firebase-tools</code> ← <code>firebase login</code> ← <code>cd functions &amp;&amp; npm install &amp;&amp; cd ..</code> ← <code>firebase deploy --only functions,firestore:rules</code>. اجعل المنطقة في <code>functions/index.js</code> و<code>js/config.js</code> مطابقة لموقع Firestore. بدونها لا يستطيع الطلاب بدء الامتحانات الرسمية.</li>
         </ol>
         <div class="toolbar" style="margin:16px 0 8px"><strong class="grow">قواعد Firestore</strong><button class="btn btn-ghost btn-sm" id="cpr">${ic('link', 16)} نسخ القواعد</button></div>
@@ -1726,11 +1857,25 @@ async function adminSettings() {
         const v = { name: fd.get('name').trim(), nameEn: fd.get('nameEn').trim(), tagline: fd.get('tagline').trim(), heroText: fd.get('heroText').trim(), about: fd.get('about').trim(), allowRegister: !!fd.get('allowRegister') };
         try { await DB.update('settings', 'main', v); Object.assign(S.settings, v); toast('حُفظت الإعدادات', 'ok'); route(); } catch (err) { toast(err.message, 'err'); }
       };
+      let phN = 0;
+      const phRow = (p = {}) => { const i = phN++, el = document.createElement('div'); el.className = 'ph-row'; el.dataset.i = i;
+        el.innerHTML = `<input name="phl${i}" maxlength="30" placeholder="الوصف، مثل: سوريا أو الإدارة" value="${esc(p.label)}">${phoneField('ph' + i, p.number)}<label class="check"><input type="checkbox" name="phw${i}" ${p.wa !== false ? 'checked' : ''}> عليه واتساب</label><button type="button" class="icon-btn sm danger" title="حذف">${ic('trash', 15)}</button>`;
+        $('button', el).onclick = () => el.remove(); $('#phl').append(el); };
+      (contactPhones().length ? contactPhones() : [{}]).forEach(phRow);
+      $('#addPh').onclick = () => phRow({ wa: true });
+      /* التصنيفات */
+      const drawCats = () => { const l = catsList(); $('#catl').innerHTML = l.map((x, i) => `<span class="cat-chip">${esc(x)}<button type="button" data-cr="${i}" title="حذف" aria-label="حذف ${esc(x)}">${ic('x', 13)}</button></span>`).join(''); };
+      const saveCats = async l => { await DB.update('settings', 'main', { cats: l }); S.settings.cats = l; drawCats(); };
+      drawCats();
+      $('#catl').onclick = async e => { const b = e.target.closest('[data-cr]'); if (!b) return; const l = [...catsList()], x = l[+b.dataset.cr]; if (!(await confirmBox(`حذف تصنيف «${esc(x)}» من القائمة؟ الدورات التي تحمله تبقى كما هي.`, 'حذف'))) return; l.splice(+b.dataset.cr, 1); await saveCats(l); toast('حُذف التصنيف'); };
+      $('#fcat').onsubmit = async e => { e.preventDefault(); const inp = $('[name=cat]', e.target), v = inp.value.trim().replace(/\s+/g, ' '); if (!v) return; if (catsList().includes(v)) { toast('التصنيف موجود'); return; } await saveCats([...catsList(), v]); inp.value = ''; toast('أُضيف التصنيف', 'ok'); };
       $('#fp').onsubmit = async e => {
         e.preventDefault(); const f = e.target; if (!f.checkValidity()) { f.reportValidity(); return; }
         const fd = new FormData(f), social = {};
         for (const [k] of SOCIALS) { const u = fd.get('so_' + k).trim(); if (u && !safeUrl(u)) { toast('رابط غير صالح — يجب أن يبدأ بـ https://', 'err'); return; } if (u) social[k] = u; }
-        const v = { whatsapp: waNum(fd.get('whatsapp')), email: fd.get('email').trim(), social, allowMessages: !!fd.get('allowMessages'), aboutLong: fd.get('aboutLong').trim(), terms: fd.get('terms').trim() };
+        const phones = [];
+        try { for (const row of $$('.ph-row', f)) { const i = row.dataset.i, number = readPhone(fd, 'ph' + i, 'الرقم'); if (number) phones.push({ label: (fd.get('phl' + i) || '').trim(), number, wa: !!fd.get('phw' + i) }); } } catch (err) { toast(err.message, 'err'); return; }
+        const v = { phones, whatsapp: (phones.find(p => p.wa) ? waNum(phones.find(p => p.wa).number) : ''), defaultCc: fd.get('defaultCc') || '963', email: fd.get('email').trim(), social, allowMessages: !!fd.get('allowMessages'), aboutLong: fd.get('aboutLong').trim(), terms: fd.get('terms').trim() };
         try { await DB.update('settings', 'main', v); Object.assign(S.settings, v); toast('حُفظت الصفحات ووسائل التواصل', 'ok'); } catch (err) { toast(err.message, 'err'); }
       };
       $('#fac').onsubmit = async e => {
@@ -1742,9 +1887,21 @@ async function adminSettings() {
         e.preventDefault(); const fd = new FormData(e.target); const v = { adminUser: fd.get('u').trim(), adminHash: await sha(fd.get('p')) };
         await DB.update('settings', 'main', v); Object.assign(S.settings, v); e.target.reset(); $('[name=u]', e.target).value = v.adminUser; toast('تغيّرت بيانات دخول المشرف', 'ok');
       });
-      $('#seed').onclick = async e => { e.currentTarget.disabled = true; try { await seedCourses(); toast('أُضيفت 3 دورات تجريبية', 'ok'); } catch (err) { toast(err.message, 'err'); } e.currentTarget.disabled = false; };
+      $('#seed').onclick = async e => {
+        const b = e.currentTarget;
+        if (!(await confirmBox(`تُضاف بيانات تجريبية في كل أقسام المنصة: 8 طلاب بحسابات دخول (كلمة المرور <b dir="ltr">123456</b>)، طلبات التحاق، قيد وثلاثة فصول، مواد بدروس ومرفقات، امتحانات ودرجات، كشوف علامات، شهادات، رسائل، وأسئلة شائعة.${S.live ? '<br><b style="color:var(--warn)">أنت متصل بـ Firebase:</b> ستظهر للزوّار. المواد الموجودة بنفس الاسم تُستعمل ولا تُعدَّل. تُحذف كلها بزر «حذف البيانات التجريبية».' : ''}`, 'إضافة'))) return;
+        b.disabled = true; const t0 = b.innerHTML;
+        try { await loadDemo(); const r = await seedDemo(s => { b.textContent = s + '…'; }); toast(`أُضيفت البيانات التجريبية (${r.docs} سجلاً)`, 'ok'); }
+        catch (err) { console.error(err); toast(err.message, 'err'); }
+        b.disabled = false; b.innerHTML = t0;
+      };
+      $('#unseed').onclick = async e => {
+        const b = e.currentTarget; if (!(await safeGet('settings', 'demo'))) { toast('لا توجد بيانات تجريبية مسجّلة'); return; }
+        if (!(await confirmBox('حذف كل ما أضافته البيانات التجريبية (الطلاب وحساباتهم، المواد التجريبية، الفصول، الامتحانات، العلامات، الرسائل…)؟ لا تُمس بياناتك الحقيقية.', 'حذف'))) return;
+        b.disabled = true; try { await loadDemo(); const n = await removeDemo(s => { b.textContent = s; }); toast(`حُذف ${n} سجلاً تجريبياً`, 'ok'); route(); } catch (err) { toast(err.message, 'err'); b.disabled = false; }
+      };
       $('#exp').onclick = async () => {
-        const out = {}; for (const c of ['settings', 'courses', 'users', 'enrollments', 'attempts', 'certificates', 'certTypes', 'certAssets', 'courseLive', 'messages', 'applications', 'appFiles', 'records', 'terms', 'regs', 'counters', 'exams', 'examPapers', 'examKeys', 'examAccess', 'sittings', 'sitPapers', 'grades']) out[c] = Object.fromEntries((await safeList(c)).map(({ id, ...r }) => [id, r]));
+        const out = {}; for (const c of ['settings', 'courses', 'users', 'enrollments', 'attempts', 'certificates', 'certTypes', 'certAssets', 'courseLive', 'messages', 'applications', 'appFiles', 'records', 'terms', 'regs', 'counters', 'exams', 'examPapers', 'examKeys', 'sittings', 'sitPapers', 'grades', 'marks', 'faqs']) out[c] = Object.fromEntries((await safeList(c)).map(({ id, ...r }) => [id, r]));
         downloadFile(`bayan-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(out, null, 1), 'application/json');
       };
       $('#imp') && ($('#imp').onchange = async e => {
@@ -1758,22 +1915,53 @@ async function adminSettings() {
 }
 
 
+/* ================= الأسئلة الشائعة ================= */
+async function adminFaq() {
+  const list = (await safeList('faqs')).sort((a, b) => (+a.order || 99) - (+b.order || 99));
+  const cats = [...new Set([...list.map(f => f.cat).filter(Boolean), ...DEFAULT_FAQS.map(f => f[0])])];
+  const form = (f = {}) => `<label>السؤال<input name="q" required maxlength="200" value="${esc(f.q)}"></label>
+    <label>الجواب <span class="hint">فقرات بسطر فارغ، و«- » لعنصر قائمة، و{name} لاسم المنصة</span><textarea name="a" rows="6" required maxlength="3000">${esc(f.a)}</textarea></label>
+    <div class="row"><label>القسم <span class="hint">اختر أو اكتب قسماً جديداً</span><input name="cat" list="fcats" maxlength="40" value="${esc(f.cat || '')}"><datalist id="fcats">${cats.map(x => `<option value="${esc(x)}">`).join('')}</datalist></label>
+    <label class="check" style="align-self:end"><input type="checkbox" name="published" ${f.published !== false ? 'checked' : ''}> منشور</label></div>`;
+  const read = fd => ({ q: fd.get('q').trim(), a: fd.get('a').trim(), cat: fd.get('cat').trim() || 'عام', published: !!fd.get('published') });
+  return {
+    active: 'faq', title: 'الأسئلة الشائعة',
+    actions: `<a class="btn btn-ghost btn-sm" href="index.html#/faq" target="_blank">${ic('eye', 16)} معاينة</a>${list.length ? '' : `<button class="btn btn-ghost btn-sm" id="defs">${ic('download', 16)} الأسئلة الافتراضية (${DEFAULT_FAQS.length})</button>`}<button class="btn btn-primary btn-sm" id="addF">${ic('plus', 16)} سؤال</button>`,
+    html: list.length ? `<p class="muted" style="margin-bottom:14px">تظهر في صفحة «الأسئلة الشائعة» مجمّعة حسب القسم وبهذا الترتيب، وأول أربعة منها في الرئيسية.</p><div class="rowlist" id="fl">${list.map((f, i) => `<div class="ritem"><span class="tick">${i + 1}</span><div class="grow"><strong>${esc(f.q)}</strong><br><small>${esc(f.cat || 'عام')} — ${esc(trim(f.a, 110))}</small></div>${f.published === false ? '<span class="pill mut">مخفي</span>' : ''}
+      <div class="acts"><button class="icon-btn sm" data-up="${i}" ${i ? '' : 'disabled'} title="أعلى">${ic('up', 16)}</button><button class="icon-btn sm" data-dn="${i}" ${i < list.length - 1 ? '' : 'disabled'} title="أسفل">${ic('down', 16)}</button><button class="icon-btn sm" data-ed="${i}" title="تعديل">${ic('edit', 16)}</button><button class="icon-btn sm danger" data-rm="${i}" title="حذف">${ic('trash', 16)}</button></div></div>`).join('')}</div>`
+      : `<div class="empty">${ic('help', 36)}<p>لا أسئلة بعد. الصفحة العامة تعرض الأسئلة الافتراضية حتى تضيف أسئلتك — أضفها لتعدّلها.</p></div>`,
+    mount() {
+      const reorder = async () => { for (const [i, f] of list.entries()) if (+f.order !== i + 1) { f.order = i + 1; await DB.update('faqs', f.id, { order: i + 1 }); } };
+      $('#addF').onclick = () => modal('سؤال جديد', form({ cat: list[list.length - 1]?.cat }), { wide: true, submitText: 'إضافة', onSubmit: async fd => { await DB.set('faqs', genId(), { ...read(fd), order: list.length + 1, createdAt: Date.now() }); toast('أُضيف السؤال', 'ok'); route(); } });
+      $('#defs') && ($('#defs').onclick = async () => { for (const [i, [cat, q, a]] of DEFAULT_FAQS.entries()) await DB.set('faqs', genId(), { cat, q, a, order: i + 1, published: true, createdAt: Date.now() }); toast('أُضيفت الأسئلة الافتراضية', 'ok'); route(); });
+      $('#fl') && ($('#fl').onclick = async e => {
+        const b = e.target.closest('button'); if (!b || b.disabled) return; const d = b.dataset;
+        if (d.up || d.dn) { const i = +(d.up ?? d.dn), j = d.up ? i - 1 : i + 1; [list[i], list[j]] = [list[j], list[i]]; await reorder(); route(); }
+        if (d.ed) { const f = list[+d.ed]; modal('تعديل السؤال', form(f), { wide: true, onSubmit: async fd => { await DB.update('faqs', f.id, read(fd)); toast('حُفظ', 'ok'); route(); } }); }
+        if (d.rm) { const f = list[+d.rm]; if (await confirmBox(`حذف «${esc(f.q)}»؟`, 'حذف')) { await DB.del('faqs', f.id); route(); } }
+      });
+    }
+  };
+}
+
 /* ================= دخول المشرف ================= */
 async function adminLoginView() {
   if (S.user?.isAdmin) { go('/'); return null; }
-  const st = S.settings;
+  const st = S.settings, ru = rememberedUser('admin');
   return {
     layout: 'bare', docTitle: 'دخول',
     html: `<section class="auth" style="min-height:100vh;background:var(--deep)"><div class="auth-card reveal"><div class="auth-head">${logoMark(48)}<h1>لوحة تحكم ${esc(st.name)}</h1><p>للمشرفين فقط</p></div>
-      <form id="f" class="form"><label>${S.live ? 'البريد الإلكتروني' : 'اسم المستخدم'}<input name="u" required autocomplete="username" dir="ltr"></label>
-      <label>كلمة المرور<input name="p" type="password" required autocomplete="current-password" dir="ltr"></label>
+      <form id="f" class="form" method="post" action="#"><label>${S.live ? 'البريد الإلكتروني' : 'اسم المستخدم'}<input name="u" required autocomplete="username" dir="ltr" value="${esc(ru)}"></label>
+      <label>كلمة المرور<span class="pass-in"><input name="p" type="password" required autocomplete="current-password" dir="ltr"><button type="button" class="icon-btn sm" data-showpass aria-label="إظهار كلمة المرور">${ic('eye', 16)}</button></span></label>
+      ${rememberBox('admin')}
       <div class="form-err" id="err"></div><button class="btn btn-primary btn-block">دخول</button></form>
       ${!S.live && !st.adminHash ? `<div class="demo-note">البيانات الافتراضية: <b dir="ltr">admin / admin123</b><br>غيّرها من الإعدادات بعد الدخول.</div>` : ''}
-      <p class="auth-alt"><a href="index.html">الذهاب إلى الموقع</a></p></div></section>`,
+      <p class="auth-alt"><a href="./">الذهاب إلى الموقع</a></p></div></section>`,
     mount() {
+      $$('[data-showpass]').forEach(b => b.onclick = () => { const i = b.previousElementSibling; i.type = i.type === 'password' ? 'text' : 'password'; b.innerHTML = ic(i.type === 'password' ? 'eye' : 'x', 16); });
       $('#f').onsubmit = async e => {
-        e.preventDefault(); const fd = new FormData(e.target), b = $('button', e.target); b.disabled = true; $('#err').textContent = '';
-        try { S.user = await Auth.adminLogin(fd.get('u').trim(), fd.get('p')); toast('أهلاً بك', 'ok'); go(sessionStorage.getItem('bayan_admin_next') || '/'); sessionStorage.removeItem('bayan_admin_next'); }
+        e.preventDefault(); const fd = new FormData(e.target), b = $('button:not([type])', e.target); b.disabled = true; $('#err').textContent = '';
+        try { const rem = !!fd.get('remember'), u = fd.get('u').trim(); S.user = await Auth.adminLogin(u, fd.get('p'), rem); Remember.set('admin', u, rem); localStorage.setItem('bayan_remember_set_admin', '1'); toast('أهلاً بك', 'ok'); go(sessionStorage.getItem('bayan_admin_next') || '/'); sessionStorage.removeItem('bayan_admin_next'); }
         catch (err) { $('#err').textContent = err.message; b.disabled = false; }
       };
     }
@@ -1791,8 +1979,8 @@ const APP = {
     [/^\/login$/, adminLoginView],
     [/^\/?$/, wrapA(adminDash), 'admin'], [/^\/courses$/, wrapA(adminCourses), 'admin'], [/^\/course\/([^/]+)$/, wrapA(adminCourse), 'admin'],
     [/^\/admissions(?:\/(settings))?$/, wrapA(adminAdmissions), 'admin'], [/^\/registry(?:\/(terms))?$/, wrapA(adminRegistry), 'admin'], [/^\/term\/([^/]+)$/, wrapA(adminTerm), 'admin'],
-    [/^\/students$/, wrapA(adminStudents), 'admin'], [/^\/results(?:\/(practice))?$/, wrapA(adminResults), 'admin'],
-    [/^\/exam\/([^/]+)(?:\/(questions|grading|access))?$/, wrapA(adminExam), 'admin'], [/^\/gradebook\/([^/]+)$/, wrapA(adminGradebook), 'admin'],
+    [/^\/students$/, wrapA(adminStudents), 'admin'], [/^\/results(?:\/(practice|marks))?$/, wrapA(adminResults), 'admin'], [/^\/marks\/([^/]+)(?:\/([^/]+))?$/, wrapA(adminMarks), 'admin'], [/^\/transcript\/([^/]+)$/, wrapA(adminTranscript), 'admin'], [/^\/faq$/, wrapA(adminFaq), 'admin'],
+    [/^\/exam\/([^/]+)(?:\/(questions|grading|access))?$/, wrapA(adminExam), 'admin'], [/^\/gradebook\/([^/]+)$/, wrapA(adminMarks), 'admin'],
     [/^\/certs(?:\/(types|courses|settings))?$/, wrapA(adminCerts), 'admin'], [/^\/certtype\/([^/]+)$/, wrapA(adminCertType), 'admin'], [/^\/messages$/, wrapA(adminMessages), 'admin'], [/^\/settings$/, wrapA(adminSettings), 'admin']
   ],
   guard(g, path) { if (S.user?.isAdmin) return false; if (path !== '/') sessionStorage.setItem('bayan_admin_next', path); go('/login'); return true; },

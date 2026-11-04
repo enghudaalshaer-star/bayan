@@ -120,30 +120,32 @@ function mountLive(c, lv) {
 }
 
 
-/* ================= الهيكل ================= */
-const adminLink = 'admin.html';
+/* ================= الهيكل =================
+   رابط لوحة التحكم لا يظهر في الموقع ولا في أي ملف يحمّله الطالب: يدخل المشرف من رابطه الخاص فقط. */
 function header(over) {
   const u = S.user, st = S.settings, path = (location.hash.slice(1) || '/');
   const on = p => (p === '/' ? path === '/' : path.startsWith(p)) ? 'on' : '';
   return `<header class="nav ${over ? 'over' : ''}" id="nav"><div class="wrap nav-in">
     <a class="logo" href="#/">${logoMark()}<span>${esc(st.name)}</span></a>
-    <nav class="links" id="links" aria-label="القائمة الرئيسية"><a href="#/" class="${on('/')}">الرئيسية</a><a href="#/programs" class="${on('/programs')}">البرامج الدراسية</a><a href="#/apply" class="${on('/apply')}">القبول</a><a href="#/courses" class="${on('/courses')}">الدورات</a><a href="#/about" class="${on('/about')}">عن ${esc(st.name)}</a><a href="#/contact" class="${on('/contact')}">تواصل معنا</a><a href="#/verify" class="${on('/verify')}">التحقق من شهادة</a></nav>
+    <nav class="links" id="links" aria-label="القائمة الرئيسية"><a href="#/" class="${on('/')}">الرئيسية</a><a href="#/programs" class="${on('/programs')}">البرامج الدراسية</a><a href="#/apply" class="${on('/apply')}">القبول</a><a href="#/courses" class="${on('/courses')}">الدورات</a><a href="#/about" class="${on('/about')}">عن ${esc(st.name)}</a><a href="#/faq" class="${on('/faq')}">الأسئلة الشائعة</a><a href="#/contact" class="${on('/contact')}">تواصل معنا</a>${u && !u.isAdmin ? `<a href="#/library" class="${on('/library')}">مكتبتي</a>` : `<a href="#/verify" class="${on('/verify')}">التحقق من شهادة</a>`}</nav>
     <div class="nav-actions">
       <button class="icon-btn" data-act="theme" aria-label="تبديل المظهر">${ic(isDark() ? 'sun' : 'moon', 18)}</button>
-      ${u ? (u.isAdmin ? `<a class="btn btn-sm btn-primary" href="${adminLink}">لوحة التحكم</a>` : `<a class="btn btn-sm btn-primary" href="#/me">${ic('user', 16)} ${esc(firstName(u.name))}</a>`)
+      ${u ? (u.isAdmin ? `<button class="btn btn-sm btn-ghost" data-act="logout" title="أنت داخل بحساب مشرف">${ic('logout', 16)} خروج المشرف</button>` : `<a class="btn btn-sm btn-primary" href="#/me">${ic('user', 16)} ${esc(firstName(u.name))}</a>`)
         : `<a class="btn btn-sm btn-ghost" href="#/login">دخول</a>${st.allowRegister ? `<a class="btn btn-sm btn-brass hide-sm" href="#/register">حساب جديد</a>` : ''}`}
       <button class="icon-btn menu-btn" data-act="menu" aria-label="القائمة">${ic('menu', 18)}</button>
     </div></div></header>`;
 }
 /* روابط التواصل الاجتماعي المعبّأة في الإعدادات */
 const socialLinks = (cls = 'soc') => { const so = S.settings.social || {}; return SOCIALS.filter(([k]) => safeUrl(so[k])).map(([k, t]) => `<a class="${cls}" href="${esc(safeUrl(so[k]))}" target="_blank" rel="noopener" aria-label="${t}" title="${t}">${ic(k, 18)}</a>`).join(''); };
+/* رابط رقم تواصل: واتساب إن كان عليه، وإلا اتصال */
+const phoneLink = (p, cls = '') => `<a class="${cls}" href="${p.wa ? waLink(p.number) : telHref(p.number)}" ${p.wa ? 'target="_blank" rel="noopener"' : ''}>${ic(p.wa ? 'whatsapp' : 'phone', 16)} <bdi dir="ltr">${esc(showPhone(p.number))}</bdi>${p.label ? ` <small>${esc(p.label)}</small>` : ''}</a>`;
 function footer() {
-  const st = S.settings, wa = waNum(st.whatsapp), soc = socialLinks();
-  const legacy = !st.email && !wa && st.contact; // وسيلة التواصل القديمة قبل إضافة البريد والواتساب
+  const st = S.settings, phones = contactPhones(), soc = socialLinks();
+  const legacy = !st.email && !phones.length && st.contact; // وسيلة التواصل القديمة قبل إضافة البريد والأرقام
   return `<footer class="foot-site"><div class="wrap foot-grid">
     <div class="foot-brand"><div class="logo" style="font-size:1.3rem">${logoMark(30)}<span>${esc(st.name)}</span></div><p>${esc(st.about)}</p>${soc ? `<div class="socs">${soc}</div>` : ''}</div>
-    <nav class="foot-col" aria-label="روابط"><h4>المنصة</h4><a href="#/programs">البرامج الدراسية</a><a href="#/calendar">التقويم الأكاديمي</a><a href="#/courses">الدورات</a><a href="#/about">عن ${esc(st.name)}</a><a href="#/verify">التحقق من شهادة</a>${st.terms ? '<a href="#/terms">الشروط والخصوصية</a>' : ''}</nav>
-    <div class="foot-col"><h4>تواصل معنا</h4>${wa ? `<a href="${waLink(wa)}" target="_blank" rel="noopener">${ic('whatsapp', 16)} <bdi dir="ltr">+${esc(wa)}</bdi></a>` : ''}${st.email ? `<a href="mailto:${esc(st.email)}">${ic('mail', 16)} <bdi dir="ltr">${esc(st.email)}</bdi></a>` : ''}${legacy ? `<span>${esc(st.contact)}</span>` : ''}<a href="#/contact">${ic('pen', 16)} أرسل رسالة</a></div>
+    <nav class="foot-col" aria-label="روابط"><h4>المنصة</h4><a href="#/programs">البرامج الدراسية</a><a href="#/calendar">التقويم الأكاديمي</a><a href="#/courses">الدورات</a><a href="#/about">عن ${esc(st.name)}</a><a href="#/verify">التحقق من شهادة</a><a href="#/faq">الأسئلة الشائعة</a>${st.terms ? '<a href="#/terms">الشروط والخصوصية</a>' : ''}</nav>
+    <div class="foot-col"><h4>تواصل معنا</h4>${phones.map(p => phoneLink(p)).join('')}${st.email ? `<a href="mailto:${esc(st.email)}">${ic('mail', 16)} <bdi dir="ltr">${esc(st.email)}</bdi></a>` : ''}${legacy ? `<span>${esc(st.contact)}</span>` : ''}<a href="#/contact">${ic('pen', 16)} أرسل رسالة</a></div>
   </div><div class="wrap foot-base"><span>© ${new Date().getFullYear()} ${esc(st.name)} — ${esc(st.tagline)}</span></div></footer>`;
 }
 function particles(cv) {
@@ -167,6 +169,7 @@ async function viewHome() {
   const certs = await safeList('certificates');
   const lessons = courses.reduce((a, c) => a + (c.lessons || []).length, 0);
   const allC = await safeList('courses'), acad = planRows(allC), ij = ijazaRows(allC);
+  const faqs = (await safeList('faqs')).filter(f => f.published !== false).sort((a, b) => (+a.order || 99) - (+b.order || 99)).slice(0, 4);
   return {
     over: true, docTitle: 'الرئيسية',
     html: `<section class="hero"><canvas id="particles"></canvas><div class="arches" aria-hidden="true"></div>
@@ -175,7 +178,7 @@ async function viewHome() {
           <span class="eyebrow">${esc(st.tagline)}</span>
           <h1 class="hero-title">${esc(st.name)}<span class="sub">علمٌ يُطلب بأناة، ويُبنى على أصول</span></h1>
           <p class="hero-lead">${esc(st.heroText)}</p>
-          <div class="hero-cta"><a class="btn btn-brass" href="#/apply">قدّم الآن</a><a class="btn btn-ghost" href="#/programs">البرامج الدراسية</a>${S.user ? `<a class="btn btn-ghost" href="${S.user.isAdmin ? adminLink : '#/me'}">${S.user.isAdmin ? 'لوحة التحكم' : 'متابعة التعلّم'}</a>` : ''}</div>
+          <div class="hero-cta"><a class="btn btn-brass" href="#/apply">قدّم الآن</a><a class="btn btn-ghost" href="#/programs">البرامج الدراسية</a>${S.user && !S.user.isAdmin ? `<a class="btn btn-ghost" href="#/me">متابعة التعلّم</a>` : ''}</div>
           <blockquote class="ayah">﴿وَقُل رَّبِّ زِدْنِي عِلْمًا﴾ <cite>طه: ١١٤</cite></blockquote>
         </div>
         <div class="hero-art">${girihArt()}</div>
@@ -202,7 +205,7 @@ async function viewHome() {
         <div class="ways reveal">
           <div class="way"><div class="glyph">${ic('play', 24)}</div><h3>دروس مرئية</h3><p>شروح مسجّلة تشاهدها في وقتك وتعيدها متى شئت.</p></div>
           <div class="way"><div class="glyph">${ic('audio', 24)}</div><h3>دروس صوتية</h3><p>استمع للمجالس والتطبيقات وأنت في طريقك.</p></div>
-          <div class="way"><div class="glyph">${ic('text', 24)}</div><h3>متون ونصوص</h3><p>المتن مكتوباً بخط واضح، وملفات PDF للمراجعة.</p></div>
+          <div class="way"><div class="glyph">${ic('clip', 24)}</div><h3>مكتبة لكل مادة</h3><p>ملخصات PDF ومذكرات Word وجداول Excel وصور وتسجيلات، في مكان واحد.</p></div>
           <div class="way"><div class="glyph">${ic('award', 24)}</div><h3>اختبار وشهادة</h3><p>اختبار في نهاية كل دورة، وشهادة برمز تحقق عند النجاح.</p></div>
         </div>
       </div></section>
@@ -214,6 +217,10 @@ async function viewHome() {
           <div class="step"><h3>ادرس واختبر</h3><p>أتمّ دروس كل مادة واجتز اختبارها، لتصدر شهادتك برمز تحقق.</p></div>
         </div>
       </div></section>
+      ${faqs.length ? `<section class="section" style="padding-top:0"><div class="wrap">
+        <div class="sec-head reveal"><div><h2>أسئلة شائعة</h2><p>أجوبة سريعة عن القبول والدراسة والعلامات.</p></div><a class="btn btn-ghost" href="#/faq">كل الأسئلة</a></div>
+        <div class="faq-list reveal">${faqs.map(faqItem).join('')}</div>
+      </div></section>` : ''}
       <section class="section" style="padding-top:0"><div class="wrap">
         <div class="band reveal"><svg class="deco" viewBox="0 0 40 40" fill="none" stroke="#C9A45C" stroke-width=".8"><rect x="8" y="8" width="24" height="24"/><rect x="8" y="8" width="24" height="24" transform="rotate(45 20 20)"/><circle cx="20" cy="20" r="6"/></svg>
           <div><h2>ابدأ طلب العلم اليوم</h2><p>${esc(st.about)}</p></div>
@@ -275,17 +282,20 @@ async function viewCourse(id) {
   const lessons = c.lessons || [], done = enr?.completed || [];
   const pct = lessons.length ? Math.round(lessons.filter(l => done.includes(l.id)).length / lessons.length * 100) : 0;
   const ex = c.exam || {}, nQ = (ex.questions || []).length;
-  /* الامتحانات الرسمية للمادة: يراها الجميع، ويدخلها المسجّل فقط */
-  const exams = (await safeList('exams', { courseId: id, published: true })).sort(examSort);
+  /* الامتحانات الرسمية للمادة: يراها الجميع، ويدخلها المسجّل فقط — والمسجّل يرى امتحانات فصله (ومن يعيد المادة يرى امتحانات فصله الجديد) */
+  const allEx = (await safeList('exams', { courseId: id, published: true })).sort(examSort);
+  const exams = enr?.termId ? allEx.filter(e => !e.termId || e.termId === enr.termId) : allEx;
   const xs = !exams.length ? [] : enr ? await myExams(exams, S.user.uid) : exams.map(e => ({ e }));
-  const myTot = enr && xs.some(x => x.gr) ? courseTotal(exams, e => xs.find(x => x.e === e)?.gr, +c.gradePass || 60) : null;
+  /* علامتي في المادة (المعتمدة) لهذا الفصل */
+  const myMark = enr ? (await safeList('marks', { uid: S.user.uid, courseId: id, published: true })).filter(m => (!enr.termId || m.termId === enr.termId)).sort((a, b) => (+b.attempt || 1) - (+a.attempt || 1))[0] : null;
+  const dist = gradeDist(c), atts = c.attachments || [];
   const totalMin = lessons.reduce((a, l) => a + (+l.duration || 0), 0);
   const cont = lessons.find(l => !done.includes(l.id)) || lessons[0];
   /* البرنامج الأكاديمي: لا تسجيل ذاتي — الطالب يُسجَّل في مواد فصله تلقائياً عند قيده. الإجازات: لمن مساره مطابق */
   const es = c.program === 'academy' ? { open: false, state: 'always' } : progC ? { open: eligibleFor(c, rec), state: 'always' } : enrollState(c), started = hasStarted(c, tm), sAt = startOf(c, tm);
   const enrollBtn = es.open ? `<button class="btn btn-brass" data-enroll>سجّل في الدورة</button>` : '';
   const liveBtn = lv ? (lst.live && liveNowUrl(lv, lst) ? `<a class="btn btn-brass btn-join" href="${esc(liveNowUrl(lv, lst))}" target="_blank" rel="noopener">${ic('video', 17)} انضم إلى اللقاء الآن</a>` : `<button class="btn btn-ghost" data-golive>${ic('video', 17)} اللقاءات المباشرة</button>`) : '';
-  const cta = S.user?.isAdmin ? `<a class="btn btn-brass" href="${adminLink}#/course/${c.id}">${ic('edit', 17)} تعديل الدورة</a>`
+  const cta = S.user?.isAdmin ? `<span class="pill-lite">${ic('eye', 15)} معاينة المشرف</span>`
     : enr && c.online && !lessons.length ? liveBtn.replace('btn-ghost', 'btn-brass')
     : enr ? (started ? `<a class="btn btn-brass" href="#/learn/${c.id}/${cont?.id || ''}">${pct ? 'تابع التعلّم' : 'ابدأ الدورة'}</a>` : `<span class="pill-lite">${ic('check', 15)} أنت مسجّل — تبدأ الدراسة ${fmtDate(sAt)}</span>`)
     : enrollBtn;
@@ -306,11 +316,17 @@ async function viewCourse(id) {
       <div class="wrap cgrid">
         <div style="display:grid;gap:24px;align-content:start">
           ${lv ? livePanel(c, lv) : ''}
-          ${xs.length ? `<div class="panel reveal" id="exams"><div class="toolbar" style="margin-bottom:6px"><h2 class="grow" style="margin:0">الامتحانات</h2>${myTot && !myTot.missing ? `<span class="pill ${myTot.passed ? 'ok' : 'no'}">نتيجتك في المادة: ${myTot.total}% — ${myTot.passed ? 'ناجح' : 'لم ينجح'}</span>` : ''}</div>${examRows(xs, !!enr)}${!enr ? `<p class="muted" style="margin-top:10px">${ic('lock', 14)} يدخل الامتحانات الطلاب المسجّلون في المادة.</p>` : ''}</div>` : ''}
+          ${enr?.repeat > 1 ? `<div class="xnote reveal">${ic('repeat', 18)}<p>تعيد هذه المادة${enr.termId ? ' في فصلك الحالي' : ''} — تقدّم لامتحاناتها من جديد، وتحلّ علامتك الجديدة محل السابقة في معدلك التراكمي.</p></div>` : ''}
+          ${myMark ? `<div class="panel reveal mymark ${myMark.result}"><div class="toolbar" style="margin-bottom:8px"><h2 class="grow" style="margin:0">علامتي في المادة</h2>${stPill(RESULT_ST, myMark.result)}</div>
+            <div class="mm-parts">${GRADE_PARTS.filter(([k]) => (myMark.dist || dist)[k]).map(([k, t, i]) => `<div>${ic(i, 16)}<span>${t}</span><b>${numTxt(myMark[k])}<small>/${(myMark.dist || dist)[k]}</small></b></div>`).join('')}<div class="tot"><span>المجموع</span><b>${numTxt(myMark.total)}<small>/100</small></b><em>${esc(myMark.word || '')}</em></div></div>
+            ${myMark.result === 'fail' ? `<p class="muted" style="margin-top:10px">${ic('repeat', 14)} لم تبلغ درجة النجاح (${myMark.pass || coursePass(c)}) — تعيد المادة في فصل لاحق.</p>` : ''}<a class="btn btn-ghost btn-sm" style="margin-top:12px" href="#/me#transcript">كشف علاماتي كاملاً</a></div>` : ''}
+          ${xs.length ? `<div class="panel reveal" id="exams"><div class="toolbar" style="margin-bottom:6px"><h2 class="grow" style="margin:0">الامتحانات</h2></div>${examRows(xs, !!enr)}${!enr ? `<p class="muted" style="margin-top:10px">${ic('lock', 14)} يدخل الامتحانات الطلاب المسجّلون في المادة.</p>` : ''}</div>` : ''}
           ${c.description ? `<div class="panel reveal"><h2>عن الدورة</h2><p class="prose">${esc(c.description)}</p></div>` : ''}
           <div class="panel reveal"><h2>محتوى الدورة</h2>
-            ${lessons.length ? `<ol class="lessons">${lessons.map((l, i) => `<li><span class="n">${done.includes(l.id) ? ic('check', 15) : i + 1}</span><div class="t">${enr ? `<a href="#/learn/${c.id}/${l.id}">${esc(l.title)}</a>` : esc(l.title)}<small>${TYPE_LBL[l.type] || ''}${l.duration ? ` — ${esc(l.duration)} دقيقة` : ''}</small></div>${ic(enr ? TYPE_IC[l.type] : 'lock', 18)}</li>`).join('')}</ol>` : `<p class="muted">${c.online ? 'تُقدَّم هذه الدورة عبر اللقاءات المباشرة.' : 'لم تُضف دروس بعد.'}</p>`}
+            ${lessons.length ? `<ol class="lessons">${lessons.map((l, i) => { const na = atts.filter(a => a.lessonId === l.id).length; return `<li><span class="n">${done.includes(l.id) ? ic('check', 15) : i + 1}</span><div class="t">${enr ? `<a href="#/learn/${c.id}/${l.id}">${esc(l.title)}</a>` : esc(l.title)}<small>${TYPE_LBL[l.type] || ''}${l.duration ? ` — ${esc(l.duration)} دقيقة` : ''}${na ? ` — ${ic('clip', 12)} ${na} ${na > 2 ? 'مرفقات' : na === 2 ? 'مرفقان' : 'مرفق'}` : ''}</small></div>${ic(enr ? TYPE_IC[l.type] : 'lock', 18)}</li>`; }).join('')}</ol>` : `<p class="muted">${c.online ? 'تُقدَّم هذه الدورة عبر اللقاءات المباشرة.' : 'لم تُضف دروس بعد.'}</p>`}
           </div>
+          ${atts.length ? `<div class="panel reveal" id="lib"><div class="toolbar" style="margin-bottom:10px"><h2 class="grow" style="margin:0">${ic('clip', 20)} مكتبة المادة</h2><div class="chips" id="lkc"><button class="chip on" data-k="">الكل <small>${atts.length}</small></button>${Object.keys(ATT_KINDS).filter(k => atts.some(a => a.kind === k)).map(k => `<button class="chip" data-k="${k}">${attKindName(k)} <small>${atts.filter(a => a.kind === k).length}</small></button>`).join('')}</div></div>
+            ${enr || S.user?.isAdmin ? `<div class="att-list" id="libl">${atts.map(a => attRow(a, { lesson: (lessons.find(l => l.id === a.lessonId) || {}).title || '' })).join('')}</div>` : `<div class="att-list locked">${atts.slice(0, 4).map(a => `<div class="att-row">${attBadge(a.kind)}<span class="grow"><b>${esc(a.title)}</b><small>${attKindName(a.kind)}</small></span>${ic('lock', 16)}</div>`).join('')}</div><p class="muted" style="margin-top:10px">${ic('lock', 14)} تُفتح الملفات للطلاب المسجّلين في المادة.</p>`}</div>` : ''}
         </div>
         <aside><div class="panel sticky reveal">
           <h3>تفاصيل</h3>
@@ -318,7 +334,8 @@ async function viewCourse(id) {
             ${c.book ? `<li><span class="n">${ic('book', 15)}</span><div class="t">الكتاب المقرّر<small>${esc(c.book)}${c.author ? ` — ${esc(c.author)}` : ''}</small></div></li>` : ''}${c.hours ? `<li><span class="n">${ic('clock', 15)}</span><div class="t">عدد الساعات<small>${esc(c.hours)} ساعات</small></div></li>` : ''}
             ${regRow}${c.online ? `<li><span class="n">${ic('video', 15)}</span><div class="t">لقاءات مباشرة${meetVia(c.livePlatform)}<small>${esc(c.liveSchedule || (enr ? 'الرابط في قسم اللقاءات' : 'يظهر رابط الدخول بعد التسجيل'))}</small></div></li>` : ''}${sAt ? `<li><span class="n">${ic('play', 15)}</span><div class="t">بداية الدراسة<small>${fmtDate(sAt)}</small></div></li>` : ''}${xw ? `<li><span class="n">${ic('calendar', 15)}</span><div class="t">موعد الامتحان<small>${dateRange(xw.from, xw.to)}</small></div></li>` : ''}${c.durationLabel ? `<li><span class="n">${ic('clock', 15)}</span><div class="t">مدة الدورة<small>${esc(c.durationLabel)}</small></div></li>` : ''}
             <li><span class="n">${ic('play', 15)}</span><div class="t">الدروس<small>${lessons.length}</small></div></li>
-            ${exams.length ? `<li><span class="n">${ic('quiz', 15)}</span><div class="t">الامتحانات<small>${[...new Set(exams.map(e => examKindName(e.kind)))].join('، ')} — النجاح في المادة من ${+c.gradePass || 60}%</small></div></li>${nQ ? `<li><span class="n">${ic('pen', 15)}</span><div class="t">اختبار تدريبي<small>${nQ} أسئلة للمراجعة الذاتية</small></div></li>` : ''}`
+            ${exams.length || isAdmProg(c.program) ? `<li><span class="n">${ic('chart', 15)}</span><div class="t">توزيع العلامة<small>${GRADE_PARTS.filter(([k]) => dist[k]).map(([k, t]) => `${t} ${dist[k]}`).join(' + ')} — النجاح من ${coursePass(c)}</small></div></li>` : ''}
+            ${exams.length ? `<li><span class="n">${ic('quiz', 15)}</span><div class="t">الامتحانات<small>${[...new Set(exams.map(e => examKindName(e.kind)))].join('، ')}</small></div></li>${nQ ? `<li><span class="n">${ic('pen', 15)}</span><div class="t">اختبار تدريبي<small>${nQ} أسئلة للمراجعة الذاتية</small></div></li>` : ''}`
               : `<li><span class="n">${ic('quiz', 15)}</span><div class="t">الاختبار النهائي<small>${nQ ? `${nQ} أسئلة — النجاح من ${ex.passScore || 60}%` : 'لا يوجد — تصدر الشهادة بإتمام الدروس'}</small></div></li>`}
             <li><span class="n">${ic('award', 15)}</span><div class="t">الشهادة<small>${exams.length ? 'تصدر برمز تحقق بعد اجتياز المادة واعتماد النتائج' : 'تصدر برمز تحقق عند الإتمام'}</small></div></li>
           </ol>${gate ? (progC ? progGate(c, rec, true) : enrollGate(es, true)) : cta.replace('btn-brass', 'btn-primary btn-block')}
@@ -326,6 +343,8 @@ async function viewCourse(id) {
       </div>`,
     mount() {
       runCountdowns(); mountLive(c, lv);
+      wireAtts($('#libl'), atts);
+      $('#lkc') && ($('#lkc').onclick = e => { const b = e.target.closest('.chip'); if (!b) return; $$('.chip', $('#lkc')).forEach(x => x.classList.toggle('on', x === b)); $$('#lib .att-row').forEach(r => { const a = atts.find(x => x.id === r.dataset.att); r.hidden = !!b.dataset.k && a?.kind !== b.dataset.k; }); });
       $$('[data-enroll]').forEach(b => b.onclick = async () => {
         if (!S.user) { sessionStorage.setItem('bayan_next', `/course/${id}`); toast('سجّل دخولك أولاً للتسجيل في الدورة'); go('/login'); return; }
         if (!progC && !enrollState(c).open) { toast('انتهت فترة التسجيل في هذه الدورة', 'err'); route(); return; }
@@ -352,6 +371,7 @@ async function viewLearn(cid, lid) {
   const hasExam = (c.exam?.questions || []).length > 0;
   const isDone = done.includes(l.id), last = idx === lessons.length - 1;
   const lv = c.online ? await safeGet('courseLive', cid) : null;
+  const latt = (c.attachments || []).filter(a => a.lessonId === l.id), catt = (c.attachments || []).filter(a => !a.lessonId);
   return {
     docTitle: l.title,
     html: `<div class="wrap learn">
@@ -362,6 +382,7 @@ async function viewLearn(cid, lid) {
             <small class="muted">الدرس ${idx + 1} من ${lessons.length} — ${TYPE_LBL[l.type] || ''}</small>
             <h1>${esc(l.title)}</h1>
             ${l.content ? `<div class="${l.type === 'text' ? 'matn' : 'prose'}" style="${l.type === 'text' ? '' : 'margin-top:12px'}">${esc(l.content)}</div>` : ''}
+            ${latt.length ? `<div class="lesson-atts" id="latt"><h3>${ic('clip', 18)} مرفقات الدرس</h3><div class="att-list">${latt.map(a => attRow(a)).join('')}</div></div>` : ''}
             <div class="lesson-nav">
               ${idx > 0 ? `<a class="btn btn-ghost" href="#/learn/${c.id}/${lessons[idx - 1].id}">${ic('prev', 17)} السابق</a>` : '<span></span>'}
               <button class="btn btn-primary" id="doneBtn">${isDone ? (last ? (hasExam ? 'الانتقال إلى الاختبار' : +c.offExams ? 'العودة إلى المادة' : 'عرض الشهادة') : 'الدرس التالي') : (last ? 'أتممت الدرس — إنهاء الدورة' : 'أتممت الدرس — التالي')} ${ic('next', 17)}</button>
@@ -372,10 +393,11 @@ async function viewLearn(cid, lid) {
         ${lv ? liveMini(c, lv) : ''}<h3 style="font-size:1.1rem;margin-bottom:8px">تقدّمك</h3>
         <div class="bar"><i data-w="${pct}" id="pbar"></i></div><small class="muted" id="ptxt">${pct}% مكتمل</small>
         <nav class="side-list" style="margin-top:14px">${lessons.map((x, i) => `<a href="#/learn/${c.id}/${x.id}" class="${x.id === l.id ? 'on' : ''}"><span class="tick ${done.includes(x.id) ? 'done' : ''}" data-tick="${x.id}">${done.includes(x.id) ? ic('check', 14) : i + 1}</span><span style="flex:1;font-size:.94rem">${esc(x.title)}<br><small class="muted">${TYPE_LBL[x.type] || ''}</small></span></a>`).join('')}
+        ${catt.length || latt.length ? `<a href="#/course/${c.id}" onclick="setTimeout(()=>document.getElementById('lib')?.scrollIntoView({behavior:'smooth'}),400)"><span class="tick">${ic('clip', 14)}</span><span style="flex:1;font-size:.94rem">مكتبة المادة <small class="muted">(${(c.attachments || []).length})</small></span></a>` : ''}
         ${hasExam ? `<a href="#/exam/${c.id}"><span class="tick">${ic('quiz', 14)}</span><span style="flex:1;font-size:.94rem">${+c.offExams ? 'اختبار تدريبي' : 'الاختبار النهائي'}</span></a>` : ''}${+c.offExams ? `<a href="#/course/${c.id}"><span class="tick">${ic('award', 14)}</span><span style="flex:1;font-size:.94rem">امتحانات المادة</span></a>` : ''}</nav>
       </div></aside></div>`,
     mount() {
-      mountLive(c, lv);
+      mountLive(c, lv); wireAtts($('#latt'), latt);
       $('#doneBtn').onclick = async e => {
         const b = e.currentTarget; b.disabled = true;
         try {
@@ -543,20 +565,21 @@ const examErr = err => {
   return msg || 'تعذّر بدء الامتحان';
 };
 const loaderHtml = (h = 300) => `<div class="loading" style="min-height:${h}px"><svg class="loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">${I.star}</svg></div>`;
+/* زر إظهار كلمة المرور */
+function wirePass(root = document) { $$('[data-showpass]', root).forEach(b => b.onclick = () => { const i = b.previousElementSibling; i.type = i.type === 'password' ? 'text' : 'password'; b.innerHTML = ic(i.type === 'password' ? 'eye' : 'x', 16); }); }
 /* حالة الطالب في امتحان لعرضها في القوائم */
 function myExamState(e, sit, gr) {
-  if (e.kind === 'oral') return gr ? [gr.passed ? `${oralRate(gr.rate)?.[1] || 'اجتاز'}` : 'لم يجتز', gr.passed ? 'ok' : 'no'] : [examPhase(e) === 'soon' ? 'موعده قادم' : 'بانتظار التقييم', 'mut'];
   if (gr) return [`${gr.score}% — ${gr.passed ? 'ناجح' : 'لم ينجح'}`, gr.passed ? 'ok' : 'no'];
   if (sit) { const exp = sit.status === 'started' && sitDeadline(e, sit) < Date.now(); return sit.status === 'submitted' || exp ? ['سُلّم — بانتظار النتيجة', 'warn'] : ['بدأته — لم تسلّمه', 'warn']; }
   return EXAM_PH[examPhase(e)];
 }
 function examRows(list, linked) {
   return `<ol class="lessons xrows">${list.map(({ e, sit, gr }) => { const [t, cls] = myExamState(e, sit, gr);
-    const inner = `<span class="n">${ic(EXAM_KINDS[e.kind]?.[1] || 'quiz', 15)}</span><div class="t">${esc(e.title || examKindName(e.kind))} ${e.title && e.title !== examKindName(e.kind) ? `<span class="muted" style="font-size:.8rem">(${examKindName(e.kind)})</span>` : ''}<small>${e.kind === 'oral' ? (+e.opensAt ? `الموعد: ${dateRange(e.opensAt, e.closesAt)}` : 'يحدّد الشيخ موعده') : `${examWhen(e)}${+e.duration ? ` — ${e.duration} دقيقة` : ''}`}${+e.weight ? ` — ${e.weight}% من الدرجة` : ''}</small></div>${linked ? `<span class="pill ${cls}">${esc(t)}</span>` : ''}`;
+    const inner = `<span class="n">${ic(EXAM_KINDS[e.kind]?.[1] || 'quiz', 15)}</span><div class="t">${esc(e.title || examKindName(e.kind))} ${e.title && e.title !== examKindName(e.kind) ? `<span class="muted" style="font-size:.8rem">(${examKindName(e.kind)})</span>` : ''}<small>${examWhen(e)}${+e.duration ? ` — ${e.duration} دقيقة` : ''}</small></div>${linked ? `<span class="pill ${cls}">${esc(t)}</span>` : ''}`;
     return `<li>${linked ? `<a class="xrow" href="#/test/${e.id}">${inner}</a>` : `<div class="xrow">${inner}</div>`}</li>`; }).join('')}</ol>`;
 }
 async function myExams(exams, uid) {
-  return Promise.all(exams.map(async e => ({ e, sit: e.kind === 'oral' ? null : await safeGet('sittings', `${e.id}_${uid}`), gr: e.resultsOut ? await safeGet('grades', `${e.id}_${uid}`) : null })));
+  return Promise.all(exams.map(async e => ({ e, sit: await safeGet('sittings', `${e.id}_${uid}`), gr: e.resultsOut ? await safeGet('grades', `${e.id}_${uid}`) : null })));
 }
 
 async function viewTest(eid) {
@@ -564,8 +587,9 @@ async function viewTest(eid) {
   if (!e || !e.published) return notFound('الامتحان غير موجود أو لم يُنشر بعد.');
   const c = await safeGet('courses', e.courseId); if (!c) return notFound('المادة غير موجودة.');
   const uid = S.user.uid, sid = `${eid}_${uid}`;
-  const [enr, sit0, acc, gr] = await Promise.all([safeGet('enrollments', `${uid}_${e.courseId}`), e.kind === 'oral' ? null : safeGet('sittings', sid), e.kind === 'makeup' ? safeGet('examAccess', sid) : null, e.resultsOut ? safeGet('grades', sid) : null]);
+  const [enr, sit0, gr] = await Promise.all([safeGet('enrollments', `${uid}_${e.courseId}`), safeGet('sittings', sid), e.resultsOut ? safeGet('grades', sid) : null]);
   if (!enr) { toast('هذا الامتحان لطلاب المادة المسجّلين'); go(`/course/${e.courseId}`); return null; }
+  if (e.termId && enr.termId && e.termId !== enr.termId && !sit0) { toast('هذا الامتحان لطلاب فصل آخر'); go(`/course/${e.courseId}`); return null; }
   const head = `<a class="muted" href="#/course/${c.id}" style="display:inline-flex;gap:6px;align-items:center;margin-bottom:12px">${ic('prev', 16)} ${esc(c.title)}</a>`;
   const facts = (rows) => `<ol class="lessons" style="max-width:420px;margin:20px auto;text-align:start">${rows.filter(Boolean).map(([i, t, v]) => `<li><span class="n">${ic(i, 15)}</span><div class="t">${t}<small>${v}</small></div></li>`).join('')}</ol>`;
   const noteHtml = e.note ? `<div class="xnote">${ic('info', 16)}<p>${esc(e.note)}</p></div>` : '';
@@ -579,19 +603,6 @@ async function viewTest(eid) {
       const now = () => Date.now() + skew;
       const card = (icon, title, body, btns = '') => `<div class="qcard" style="text-align:center">${ic(icon, 44)}<h2 style="font-family:var(--display);font-size:1.8rem;margin:10px 0 6px">${title}</h2><p class="muted">${esc(c.title)} — ${kindPill(e.kind)}</p>${body}${btns ? `<div class="hero-cta" style="justify-content:center">${btns}</div>` : ''}</div>`;
       const backBtn = `<a class="btn btn-ghost" href="#/course/${c.id}">العودة إلى المادة</a>`;
-
-      /* ===== التقييم الشفهي: يسجّله الشيخ من لوحة التحكم ===== */
-      if (e.kind === 'oral') {
-        const r = gr && oralRate(gr.rate);
-        box.innerHTML = card('audio', esc(e.title || 'التقييم الشفهي'), facts([
-          ['calendar', 'الموعد', +e.opensAt ? dateRange(e.opensAt, e.closesAt) : 'يحدّده الشيخ ويُبلغك به'], e.examiner && ['user', 'المقيِّم', esc(e.examiner)],
-          ['info', 'طريقة التقييم', 'عرض وسماع مباشر على الشيخ، ويُسجَّل التقدير في المنصة'], +e.weight && ['chart', 'الوزن', `${e.weight}% من درجة المادة`]]) + noteHtml
-          + (gr ? `<div class="oral-res ${gr.passed ? 'ok' : 'no'}"><b>${esc(r?.[1] || '—')}</b>${gr.score != null ? `<span>${gr.score}%</span>` : ''}${gr.portion ? `<small>المقدار: ${esc(gr.portion)}</small>` : ''}${gr.examiner ? `<small>المقيِّم: ${esc(gr.examiner)} — ${fmtDate(gr.heardAt)}</small>` : ''}${gr.notes ? `<p>${esc(gr.notes)}</p>` : ''}</div>`
-            : `<p class="pill mut">${e.resultsOut ? 'لم يُسجَّل تقييمك بعد' : 'تُعلن النتيجة بعد اعتمادها'}</p>`), backBtn);
-        return;
-      }
-      /* ===== الإكمالي لمن قرّرته الإدارة فقط ===== */
-      if (e.kind === 'makeup' && !acc && !sit) { box.innerHTML = card('key', esc(e.title || 'الامتحان الإكمالي'), `<p class="form-err" style="margin-top:16px">هذا الامتحان لمن تقرّر له الإكمالي في المادة. إن كنت تراه خطأً فتواصل مع الإدارة.</p>`, backBtn); return; }
 
       /* ===== بعد التسليم: إيصال التسليم والنتيجة إن نُشرت ===== */
       const doneView = (late) => {
@@ -625,7 +636,7 @@ async function viewTest(eid) {
         const lateStart = can && !sit && +e.closesAt && +e.duration && Date.now() + e.duration * 6e4 > +e.closesAt;
         box.innerHTML = card(EXAM_KINDS[e.kind]?.[1] || 'quiz', esc(e.title || examKindName(e.kind)), facts([
           ['calendar', 'الموعد', examWhen(e)], ['quiz', 'عدد الأسئلة', e.nq || '—'], ['clock', 'المدة', +e.duration ? `${e.duration} دقيقة تبدأ من ضغطك «ابدأ»` : 'حتى نهاية الموعد'],
-          ['award', 'درجة النجاح', `${e.passScore || 60}%`], +e.weight && ['chart', 'الوزن', `${e.weight}% من درجة المادة`]]) + noteHtml
+          ['award', 'درجة النجاح', `${e.passScore || 60}%`], ['chart', 'من علامة المادة', `${e.kind === 'final' ? 'الامتحان النهائي' : 'المذاكرة'}: ${gradeDist(c)[e.kind === 'final' ? 'final' : 'quiz']} درجة من 100`]]) + noteHtml
           + `<ul class="xrules"><li>${ic('key', 14)} محاولة واحدة فقط، ولا يمكن إعادة الامتحان بعد البدء.</li><li>${ic('clock', 14)} الوقت يُحسب من السيرفر، ولا يتوقف إن أغلقت الصفحة.</li><li>${ic('check', 14)} تُحفظ إجاباتك تلقائياً أثناء الحل، وتُسلَّم عند انتهاء الوقت.</li><li>${ic('pen', 14)} الأسئلة المقالية والقصيرة يصحّحها الأستاذ، وتُعلن النتيجة بعد اعتمادها.</li></ul>`
           + (lateStart ? `<p class="pill warn" style="margin:8px 0">يُغلق الامتحان ${fmtTime(e.closesAt)} — ستحصل على الوقت المتبقي فقط</p>` : '') + msg,
           (can ? `<button class="btn btn-primary" id="go">${sit ? 'متابعة الامتحان' : 'ابدأ الامتحان'}</button>` : '') + backBtn);
@@ -798,24 +809,29 @@ async function viewVerify() {
 
 /* ================= الدخول والتسجيل ================= */
 async function viewLogin() {
-  if (S.user) { S.user.isAdmin ? location.href = adminLink : go('/me'); return null; }
-  const st = S.settings;
+  if (S.user && !S.user.isAdmin) { go('/me'); return null; }
+  const st = S.settings, ru = rememberedUser('site');
   return {
     docTitle: 'تسجيل الدخول',
     html: `<section class="auth"><div class="auth-card reveal"><div class="auth-head">${logoMark(48)}<h1>أهلاً بك في ${esc(st.name)}</h1><p>سجّل دخولك لمتابعة دروسك</p></div>
-      <form id="f" class="form"><label>اسم المستخدم<input name="u" required autocomplete="username" dir="ltr"></label>
-      <label>كلمة المرور<input name="p" type="password" required autocomplete="current-password" dir="ltr"></label>
+      <form id="f" class="form" method="post" action="#"><label>اسم المستخدم<input name="u" required autocomplete="username" dir="ltr" value="${esc(ru)}"></label>
+      <label>كلمة المرور<span class="pass-in"><input name="p" type="password" required autocomplete="current-password" dir="ltr"><button type="button" class="icon-btn sm" data-showpass aria-label="إظهار كلمة المرور">${ic('eye', 16)}</button></span></label>
+      ${rememberBox('site')}
       <div class="form-err" id="err"></div><button class="btn btn-primary btn-block">دخول</button></form>
-      ${st.allowRegister ? `<p class="auth-alt">ليس لديك حساب؟ <a href="#/register">أنشئ حساباً</a></p>` : ''}
+      <p class="auth-alt">نسيت كلمة المرور؟ <a href="#/contact">تواصل مع الإدارة</a></p>
+      ${st.allowRegister ? `<p class="auth-alt" style="margin-top:6px">ليس لديك حساب؟ <a href="#/register">أنشئ حساباً</a></p>` : ''}
       ${!S.live ? `<div class="demo-note">وضع تجريبي — حساب طالب: <b dir="ltr">demo / 123456</b></div>` : ''}
     </div></section>`,
     mount() {
+      wirePass();
+      if (S.user?.isAdmin) Auth.logout().then(() => { S.user = null; });
       $('#f').onsubmit = async e => {
-        e.preventDefault(); const fd = new FormData(e.target), b = $('button', e.target); b.disabled = true; $('#err').textContent = '';
+        e.preventDefault(); const fd = new FormData(e.target), b = $('button[type=submit],button:not([type])', e.target), rem = !!fd.get('remember'), u = fd.get('u').trim(); b.disabled = true; $('#err').textContent = '';
         try {
-          S.user = await Auth.login(fd.get('u').trim(), fd.get('p'));
+          S.user = await Auth.login(u, fd.get('p'), rem);
+          if (S.user.isAdmin) { await Auth.logout(); S.user = null; throw new Error('هذا حساب مشرف — ادخل من رابط لوحة التحكم الخاص بك.'); }
+          Remember.set('site', u, rem); localStorage.setItem('bayan_remember_set_site', '1');
           const next = sessionStorage.getItem('bayan_next'); sessionStorage.removeItem('bayan_next');
-          if (S.user.isAdmin) { location.href = adminLink; return; }
           toast('أهلاً ' + firstName(S.user.name), 'ok'); go(next || '/me');
         } catch (err) { $('#err').textContent = err.message; b.disabled = false; }
       };
@@ -832,7 +848,7 @@ async function viewRegister() {
         <label>الاسم الكامل <span class="hint">(يُكتب على الشهادة)</span><input name="name" required minlength="3"></label>
         <label>الاسم بالإنجليزية <span class="hint">(يُكتب على الشهادة، اختياري)</span><input name="nameEn" dir="ltr" placeholder="e.g. Abdullah Ahmad"></label>
         <label>اسم المستخدم <span class="hint">أحرف إنجليزية وأرقام</span><input name="username" required pattern="[A-Za-z0-9_.]{3,20}" dir="ltr" autocomplete="username"></label>
-        <label>رقم الجوال <span class="hint">(اختياري)</span><input name="phone" type="tel" dir="ltr"></label>
+        <label>رقم الجوال <span class="hint">(اختياري) — اختر دولتك</span>${phoneField('phone')}</label>
         <label>كلمة المرور <span class="hint">6 أحرف على الأقل</span><input name="password" type="password" required minlength="6" dir="ltr" autocomplete="new-password"></label>
         <div class="form-err" id="err"></div><button class="btn btn-primary btn-block">إنشاء الحساب</button>
         <p class="hint" style="text-align:center">${(sessionStorage.getItem('bayan_next') || '').startsWith('/apply') ? 'بعد إنشاء الحساب تنتقل مباشرة إلى طلب الالتحاق.' : `<a href="#/programs" style="color:var(--teal)">شروط القبول في البرامج</a>`}</p></form>
@@ -842,7 +858,8 @@ async function viewRegister() {
         e.preventDefault(); const f = e.target; if (!f.checkValidity()) { f.reportValidity(); return; }
         const fd = new FormData(f), b = $('button', f); b.disabled = true; $('#err').textContent = '';
         try {
-          S.user = await Auth.createUser({ name: fd.get('name').trim(), nameEn: fd.get('nameEn').trim(), username: fd.get('username').trim(), password: fd.get('password'), phone: fd.get('phone').trim() }, true);
+          const phone = readPhone(fd, 'phone');
+          S.user = await Auth.createUser({ name: fd.get('name').trim(), nameEn: fd.get('nameEn').trim(), username: fd.get('username').trim(), password: fd.get('password'), phone }, true);
           toast('أُنشئ حسابك — أهلاً بك', 'ok'); go(sessionStorage.getItem('bayan_next') || '/courses'); sessionStorage.removeItem('bayan_next');
         } catch (err) { $('#err').textContent = err.message; b.disabled = false; }
       };
@@ -874,10 +891,10 @@ async function viewAbout() {
   };
 }
 async function viewContact() {
-  const st = S.settings, wa = waNum(st.whatsapp), soc = socialLinks('chan-soc');
-  const channels = (wa ? `<a class="chan" href="${waLink(wa, 'السلام عليكم، لدي استفسار عن ' + st.name)}" target="_blank" rel="noopener"><span class="chan-ic">${ic('whatsapp', 22)}</span><span><strong>واتساب</strong><small><bdi dir="ltr">+${esc(wa)}</bdi></small></span></a>` : '')
+  const st = S.settings, phones = contactPhones(), soc = socialLinks('chan-soc');
+  const channels = phones.map(p => `<a class="chan" href="${p.wa ? waLink(p.number, 'السلام عليكم، لدي استفسار عن ' + st.name) : telHref(p.number)}" ${p.wa ? 'target="_blank" rel="noopener"' : ''}><span class="chan-ic">${ic(p.wa ? 'whatsapp' : 'phone', 22)}</span><span><strong>${esc(p.label || (p.wa ? 'واتساب' : 'هاتف'))}</strong><small><bdi dir="ltr">${esc(showPhone(p.number))}</bdi>${p.wa ? ' — واتساب' : ''}</small></span></a>`).join('')
     + (st.email ? `<a class="chan" href="mailto:${esc(st.email)}"><span class="chan-ic">${ic('mail', 22)}</span><span><strong>البريد الإلكتروني</strong><small><bdi dir="ltr">${esc(st.email)}</bdi></small></span></a>` : '')
-    + (!st.email && !wa && st.contact ? `<div class="chan"><span class="chan-ic">${ic('info', 22)}</span><span><strong>للتواصل</strong><small>${esc(st.contact)}</small></span></div>` : '');
+    + (!st.email && !phones.length && st.contact ? `<div class="chan"><span class="chan-ic">${ic('info', 22)}</span><span><strong>للتواصل</strong><small>${esc(st.contact)}</small></span></div>` : '');
   const form = st.allowMessages !== false;
   return {
     over: true, docTitle: 'تواصل معنا',
@@ -885,8 +902,12 @@ async function viewContact() {
       <div class="wrap cgrid">
         ${form ? `<div class="panel reveal" id="cbox"><h2>أرسل رسالة</h2>
           <form class="form" id="cf" novalidate>
-            <div class="row"><label>الاسم<input name="name" required minlength="2" maxlength="80" value="${esc(S.user && !S.user.isAdmin ? S.user.name : '')}"></label>
-            <label>جوال أو بريد للرد عليك<input name="reply" required maxlength="120" dir="ltr" placeholder="+9665… أو name@mail.com"></label></div>
+            <label>الاسم<input name="name" required minlength="2" maxlength="80" value="${esc(S.user && !S.user.isAdmin ? S.user.name : '')}"></label>
+            <fieldset class="fset reply-by"><legend>كيف نرد عليك؟</legend>
+              <div class="choice" role="radiogroup"><label><input type="radio" name="by" value="phone" checked> ${ic('whatsapp', 16)} واتساب أو اتصال</label><label><input type="radio" name="by" value="mail"> ${ic('mail', 16)} بريد إلكتروني</label></div>
+              <label data-by="phone">رقمك مع رمز دولتك <span class="hint">من أي دولة — اختر الدولة ثم اكتب الرقم</span>${phoneField('reply')}</label>
+              <label data-by="mail" hidden>بريدك الإلكتروني<input name="email" type="email" maxlength="120" dir="ltr" placeholder="name@mail.com"></label>
+            </fieldset>
             <label>الموضوع<select name="topic">${MSG_TOPICS.map(t => `<option>${t}</option>`).join('')}</select></label>
             <label>رسالتك<textarea name="body" rows="6" required minlength="5" maxlength="3000"></textarea></label>
             <label class="hp" aria-hidden="true">اترك هذا الحقل فارغاً<input name="website" tabindex="-1" autocomplete="off"></label>
@@ -895,15 +916,20 @@ async function viewContact() {
           </form></div>` : ''}
         <aside${form ? '' : ' style="grid-column:1/-1;max-width:560px"'}><div class="panel ${form ? 'sticky' : ''} reveal"><h3>قنوات مباشرة</h3>
           ${channels || soc ? `<div class="chans">${channels}</div>${soc ? `<p class="muted" style="margin:16px 0 8px">تابعنا</p><div class="socs">${soc}</div>` : ''}` : '<p class="muted">لم تُضف قنوات تواصل بعد.</p>'}
+          <a class="faq-cta" href="#/faq">${ic('help', 20)}<span><b>قبل أن تراسلنا</b><small>جواب سؤالك قد يكون في الأسئلة الشائعة</small></span>${ic('prev', 16)}</a>
         </div></aside>
       </div>`,
     mount() {
       const f = $('#cf'); if (!f) return;
+      const by = () => f.querySelector('[name=by]:checked').value;
+      const sync = () => { const v = by(); $$('[data-by]', f).forEach(el => { el.hidden = el.dataset.by !== v; }); $('[name=email]', f).required = v === 'mail'; $('[name=reply_num]', f).required = v === 'phone'; };
+      $$('[name=by]', f).forEach(r => r.onchange = sync); sync();
       f.onsubmit = async e => {
         e.preventDefault(); if (!f.checkValidity()) { f.reportValidity(); return; }
-        const fd = new FormData(f), b = $('button', f), err = $('#cerr'); err.textContent = '';
-        const reply = fd.get('reply').trim();
-        if (!/@/.test(reply) && waNum(reply).length < 7) { err.textContent = 'اكتب رقم جوال صحيحاً أو بريداً إلكترونياً لنرد عليك.'; return; }
+        const fd = new FormData(f), b = $('button[type=submit],button:not([type])', f), err = $('#cerr'); err.textContent = '';
+        let reply;
+        try { reply = by() === 'mail' ? fd.get('email').trim() : readPhone(fd, 'reply', 'رقم الجوال'); } catch (ex) { err.textContent = ex.message; return; }
+        if (!reply || (by() === 'mail' && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(reply))) { err.textContent = by() === 'mail' ? 'اكتب بريداً إلكترونياً صحيحاً.' : 'اكتب رقم جوالك لنرد عليك.'; return; }
         const last = +localStorage.getItem('bayan_msg_at') || 0;
         if (Date.now() - last < 60000) { err.textContent = 'أرسلت رسالة قبل قليل. انتظر دقيقة ثم أعد الإرسال.'; return; }
         b.disabled = true;
@@ -914,6 +940,70 @@ async function viewContact() {
           done();
         } catch (ex) { err.textContent = 'تعذّر الإرسال: ' + (/permission|insufficient/i.test(ex.message) ? 'رفض الخادم الرسالة، تحقّق من طولها.' : ex.message); b.disabled = false; }
       };
+    }
+  };
+}
+
+/* ================= الأسئلة الشائعة ================= */
+const faqItem = f => `<details class="faq" id="q-${esc(f.id)}"><summary><span class="faq-q">${esc(f.q)}</span><span class="faq-pm" aria-hidden="true"></span></summary><div class="faq-a">${richText(f.a)}</div></details>`;
+async function viewFaq() {
+  const all = (await safeList('faqs')).filter(f => f.published !== false).sort((a, b) => (+a.order || 99) - (+b.order || 99));
+  const list = all.length ? all : DEFAULT_FAQS.map(([cat, q, a], i) => ({ id: 'd' + i, cat, q, a }));
+  const cats = [...new Set(list.map(f => f.cat || 'عام'))];
+  return {
+    over: true, docTitle: 'الأسئلة الشائعة',
+    html: `${pageHead('الأسئلة الشائعة', 'أجوبة عن القبول والدراسة والامتحانات والعلامات والشهادات')}
+      <div class="wrap faq-page">
+        <div class="faq-tools reveal"><label class="searchbox grow">${ic('search', 18)}<span class="sr">بحث</span><input id="fq" placeholder="ابحث في الأسئلة، مثل: الرسوب، الشهادة، القبول"></label>
+          ${cats.length > 1 ? `<div class="chips" id="fc"><button class="chip on" data-c="">الكل</button>${cats.map(c => `<button class="chip" data-c="${esc(c)}">${esc(c)}</button>`).join('')}</div>` : ''}</div>
+        <div id="fl"></div>
+        <div class="faq-more reveal">${ic('inbox', 24)}<div class="grow"><b>لم تجد جوابك؟</b><small>راسلنا وسنرد عليك في أقرب وقت.</small></div><a class="btn btn-primary" href="#/contact">تواصل معنا</a></div>
+      </div>`,
+    mount() {
+      let q = '', cat = '';
+      const draw = () => {
+        const nq = normAr(q), l = list.filter(f => (!cat || (f.cat || 'عام') === cat) && (!nq || normAr(f.q + ' ' + f.a).includes(nq)));
+        const groups = [...new Set(l.map(f => f.cat || 'عام'))];
+        $('#fl').innerHTML = l.length ? groups.map(g => `<section class="faq-group"><h2>${esc(g)}</h2><div class="faq-list">${l.filter(f => (f.cat || 'عام') === g).map(faqItem).join('')}</div></section>`).join('')
+          : `<div class="empty">${ic('help', 34)}<p>لا أسئلة مطابقة. جرّب كلمة أخرى أو راسلنا.</p></div>`;
+        if (q && l.length === 1) $('#fl details').open = true;
+      };
+      $('#fq').oninput = e => { q = e.target.value.trim(); draw(); };
+      $('#fc') && ($('#fc').onclick = e => { const b = e.target.closest('.chip'); if (!b) return; $$('.chip', $('#fc')).forEach(x => x.classList.toggle('on', x === b)); cat = b.dataset.c; draw(); });
+      draw();
+      const h = location.hash.split('#')[2]; if (h) { const el = document.getElementById(h); if (el) { el.open = true; el.scrollIntoView({ block: 'center' }); } }
+    }
+  };
+}
+
+/* ================= مكتبتي: كل مرفقات المواد المسجّل فيها ================= */
+async function viewLibrary() {
+  const [enr, courses] = await Promise.all([safeList('enrollments', { uid: S.user.uid }), safeList('courses')]);
+  const cm = Object.fromEntries(courses.map(c => [c.id, c]));
+  const items = enr.map(e => cm[e.courseId]).filter(Boolean).flatMap(c => (c.attachments || []).map(a => ({ ...a, c, lesson: (c.lessons || []).find(l => l.id === a.lessonId)?.title || '' })));
+  const mine = [...new Map(items.map(a => [a.c.id, a.c])).values()];
+  return {
+    docTitle: 'مكتبتي',
+    html: `<section class="section" style="padding-top:48px"><div class="wrap">
+      <div class="sec-head"><div><h2 style="font-size:clamp(2rem,4.4vw,3rem)">مكتبتي</h2><p>${items.length ? `${items.length} ملفاً من ${mine.length} ${mine.length > 2 ? 'مواد' : 'مادة'}: ملخصات ومذكرات وجداول وصور وتسجيلات.` : 'ملفات موادك تظهر هنا.'}</p></div>
+        <label class="searchbox">${ic('search', 18)}<span class="sr">بحث</span><input id="lq" placeholder="ابحث باسم الملف أو الدرس"></label></div>
+      ${items.length ? `<div class="chips" id="lk" style="margin-bottom:10px"><button class="chip on" data-k="">الكل <small>${items.length}</small></button>${Object.keys(ATT_KINDS).filter(k => items.some(a => a.kind === k)).map(k => `<button class="chip" data-k="${k}">${attKindName(k)} <small>${items.filter(a => a.kind === k).length}</small></button>`).join('')}</div>
+      ${mine.length > 1 ? `<div class="chips" id="lc" style="margin-bottom:22px"><button class="chip on" data-c="">كل المواد</button>${mine.map(c => `<button class="chip" data-c="${c.id}">${esc(c.title)}</button>`).join('')}</div>` : '<div style="height:12px"></div>'}
+      <div id="ll"></div>` : `<div class="empty">${ic('clip', 36)}<p style="margin-bottom:14px">لا توجد ملفات في موادك بعد. تظهر هنا مرفقات الدروس والمواد التي تسجّل فيها.</p><a class="btn btn-primary" href="#/me">موادي</a></div>`}
+    </div></section>`,
+    mount() {
+      if (!items.length) return;
+      let k = '', c = '', q = '';
+      const draw = () => {
+        const nq = normAr(q), l = items.filter(a => (!k || a.kind === k) && (!c || a.c.id === c) && (!nq || normAr([a.title, a.lesson, a.c.title, a.name].join(' ')).includes(nq)));
+        const groups = [...new Set(l.map(a => a.c.id))];
+        $('#ll').innerHTML = l.length ? groups.map(id => `<section class="lib-group"><a class="lib-h" href="#/course/${id}">${ic(cm[id].icon || 'book', 18)} <b>${esc(cm[id].title)}</b></a><div class="att-list">${l.filter(a => a.c.id === id).map(a => attRow(a, { lesson: a.lesson })).join('')}</div></section>`).join('')
+          : `<div class="empty">${ic('search', 32)}<p>لا ملفات مطابقة.</p></div>`;
+      };
+      const pick = (box, attr, set) => box && (box.onclick = e => { const b = e.target.closest('.chip'); if (!b) return; $$('.chip', box).forEach(x => x.classList.toggle('on', x === b)); set(b.dataset[attr]); draw(); });
+      pick($('#lk'), 'k', v => { k = v; }); pick($('#lc'), 'c', v => { c = v; });
+      $('#lq').oninput = e => { q = e.target.value.trim(); draw(); };
+      wireAtts($('#ll'), items); draw();
     }
   };
 }
@@ -1120,7 +1210,7 @@ function applyForm(p, a, me) {
           <label>المدينة <span class="hint">اختياري</span><input name="city" maxlength="40" value="${esc(v.city)}"></label>
         </fieldset>
         <fieldset class="fset"><legend>${ic('whatsapp', 17)} التواصل</legend>
-          <div class="row"><label>رقم الجوال <span class="hint">ويفضّل أن يكون عليه واتساب</span><input name="phone" type="tel" dir="ltr" required minlength="7" maxlength="20" value="${esc(v.phone)}"></label><label>البريد الإلكتروني <span class="hint">اختياري</span><input name="email" type="email" dir="ltr" maxlength="80" value="${esc(v.email)}"></label></div>
+          <div class="row"><label>رقم الجوال <span class="hint">ويفضّل أن يكون عليه واتساب</span>${phoneField('phone', v.phone, { required: true })}</label><label>البريد الإلكتروني <span class="hint">اختياري</span><input name="email" type="email" dir="ltr" maxlength="80" value="${esc(v.email)}"></label></div>
         </fieldset>
         <fieldset class="fset"><legend>${ic('award', 17)} المؤهل الدراسي</legend>
           <div class="row"><label>أعلى مؤهل حصلت عليه<select name="qual" required>${opts(QUALS, v.qual, 'اختر')}</select></label><label>التخصص أو الفرع <span class="hint">مثل: علمي، أدبي، شريعة</span><input name="qualSpec" maxlength="60" value="${esc(v.qualSpec)}"></label></div>
@@ -1143,7 +1233,8 @@ function applyForm(p, a, me) {
       </form></div>${applyAside(p)}</div>`,
     mount() {
       const f = $('#af'); let file = null;
-      const vals = () => { const fd = new FormData(f); return Object.fromEntries(['name', 'nameEn', 'birthDate', 'gender', 'nationality', 'country', 'city', 'phone', 'email', 'qual', 'qualSpec', 'qualYear', 'qualFrom', 'track', 'arabic', 'quranAmt', 'priorIjaza', 'motivation', 'heard'].map(k => [k, String(fd.get(k) ?? '').trim()])); };
+      const vals = (strict) => { const fd = new FormData(f), o = Object.fromEntries(['name', 'nameEn', 'birthDate', 'gender', 'nationality', 'country', 'city', 'email', 'qual', 'qualSpec', 'qualYear', 'qualFrom', 'track', 'arabic', 'quranAmt', 'priorIjaza', 'motivation', 'heard'].map(k => [k, String(fd.get(k) ?? '').trim()]));
+        try { o.phone = readPhone(fd, 'phone'); } catch (err) { if (strict) throw err; o.phone = ''; } return o; };
       const check = () => {
         const x = admissionIssues(p, { ...vals(), hasFile: true }), box = $('#iss');
         box.hidden = !x.hard.length && !x.soft.length;
@@ -1159,7 +1250,8 @@ function applyForm(p, a, me) {
       f.onsubmit = async e => {
         e.preventDefault(); $('#err').textContent = '';
         if (!f.checkValidity()) { f.reportValidity(); return; }
-        const d = vals(), x = check();
+        let d; try { d = vals(true); } catch (err) { $('#err').textContent = err.message; return; }
+        const x = check();
         if (x.hard.length) { $('#err').textContent = 'لا يمكن إرسال الطلب: ' + x.hard[0]; return; }
         if (needFile && !file) { $('#err').textContent = 'ارفع صورة شهادة المؤهل الدراسي.'; return; }
         const b = $('button', f); b.disabled = true;
@@ -1248,14 +1340,16 @@ async function viewCalendar() {
 
 /* ================= حساب الطالب ================= */
 async function viewMe() {
-  const [enr, certs, courses, att, apps, recs, regs, terms] = await Promise.all([safeList('enrollments', { uid: S.user.uid }), safeList('certificates', { uid: S.user.uid }), safeList('courses'), safeList('attempts', { uid: S.user.uid }),
-    safeList('applications', { uid: S.user.uid }), safeList('records', { uid: S.user.uid }), safeList('regs', { uid: S.user.uid }), safeList('terms')]);
+  const [enr, certs, courses, att, apps, recs, regs, terms, marks0] = await Promise.all([safeList('enrollments', { uid: S.user.uid }), safeList('certificates', { uid: S.user.uid }), safeList('courses'), safeList('attempts', { uid: S.user.uid }),
+    safeList('applications', { uid: S.user.uid }), safeList('records', { uid: S.user.uid }), safeList('regs', { uid: S.user.uid }), safeList('terms'), safeList('marks', { uid: S.user.uid, published: true })]);
+  const marks = marks0.filter(m => m.published), nAtt = courses.filter(c => enr.some(e => e.courseId === c.id)).reduce((a, c) => a + (c.attachments || []).length, 0);
   const cm = Object.fromEntries(courses.map(c => [c.id, c]));
   const mine = enr.map(e => { const c = cm[e.courseId]; if (!c) return null; const ls = c.lessons || []; return { c, pct: ls.length ? Math.round(ls.filter(l => (e.completed || []).includes(l.id)).length / ls.length * 100) : 0, at: e.lastAt || e.enrolledAt }; }).filter(Boolean).sort((a, b) => b.at - a.at);
   const h = new Date().getHours();
   /* امتحاناتي: القادمة والمفتوحة والمسلّمة بانتظار النتيجة والنتائج المعلنة حديثاً */
   const offC = mine.filter(m => +m.c.offExams).map(m => m.c);
-  const exl = (await Promise.all(offC.map(c => safeList('exams', { courseId: c.id, published: true })))).flat().filter(e => examPhase(e) !== 'closed' || Date.now() - (+e.closesAt || 0) < 60 * 864e5);
+  const tOf = Object.fromEntries(enr.map(e => [e.courseId, e.termId || '']));
+  const exl = (await Promise.all(offC.map(c => safeList('exams', { courseId: c.id, published: true })))).flat().filter(e => (!e.termId || !tOf[e.courseId] || e.termId === tOf[e.courseId]) && (examPhase(e) !== 'closed' || Date.now() - (+e.closesAt || 0) < 60 * 864e5));
   const mx = exl.length ? await myExams(exl.sort(examSort), S.user.uid) : [];
   const exByC = offC.map(c => ({ c, l: mx.filter(x => x.e.courseId === c.id) })).filter(g => g.l.length);
   /* لقاءاتي المباشرة: الجاري الآن أولاً، ثم أقرب لقاء لكل دورة */
@@ -1265,16 +1359,21 @@ async function viewMe() {
   return {
     docTitle: 'حسابي',
     html: `<div class="wrap"><div class="me-head reveal"><p class="muted">${h < 12 ? 'صباح الخير' : 'مساء الخير'}</p><h1>${esc(S.user.name)}</h1>
-      <div class="hero-cta" style="margin-top:14px"><a class="btn btn-primary" href="#/courses">${ic('plus', 17)} دورة جديدة</a><button class="btn btn-ghost" data-act="logout">${ic('logout', 17)} تسجيل الخروج</button></div></div>
+      <div class="hero-cta" style="margin-top:14px"><a class="btn btn-primary" href="#/courses">${ic('plus', 17)} دورة جديدة</a>${marks.length ? `<a class="btn btn-ghost" href="#/me#transcript">${ic('chart', 17)} كشف علاماتي</a>` : ''}${nAtt ? `<a class="btn btn-ghost" href="#/library">${ic('clip', 17)} مكتبتي (${nAtt})</a>` : ''}<button class="btn btn-ghost" data-act="logout">${ic('logout', 17)} تسجيل الخروج</button></div></div>
       <h2 style="margin-bottom:18px">ملفي الأكاديمي</h2>${acadSection(apps, recs, regs, terms.filter(t => (t.program || 'academy') === 'academy'), courses, enr)}
       <div class="stats reveal" style="margin:40px 0"><div class="stat"><b data-count="${mine.length}">0</b><span>دورة مسجّلة</span></div><div class="stat"><b data-count="${mine.filter(m => m.pct === 100).length}">0</b><span>دورة مكتملة الدروس</span></div><div class="stat"><b data-count="${certs.length}">0</b><span>شهادة</span></div><div class="stat"><b data-count="${att.length}">0</b><span>محاولة اختبار</span></div></div>
       ${lives.length ? `<h2 style="margin-bottom:18px">لقاءاتي المباشرة</h2><div class="live-list reveal" style="margin-bottom:40px">${lives.map(x => `<div class="chan live-row ${x.on ? 'on' : ''}">${meetBadge(x.p)}<span class="grow"><a href="#/course/${x.c.id}"><strong>${esc(x.c.title)}</strong></a><small>${x.on ? `<b class="live-tag"><span class="dot" aria-hidden="true"></span> جارٍ الآن</b> ${esc(x.s.title)}` : x.s ? `${fmtSess(x.s)} — ${esc(x.s.title)}` : esc(x.c.liveSchedule || 'رابط ثابت للقاءات')}</small></span>${x.url ? `<a class="btn btn-sm ${x.on ? 'btn-brass' : 'btn-ghost'}" href="${esc(x.url)}" target="_blank" rel="noopener">${ic('video', 15)} ${x.on ? 'انضم الآن' : 'الرابط'}</a>` : ''}</div>`).join('')}</div>` : ''}
       ${exByC.length ? `<h2 style="margin-bottom:18px">امتحاناتي</h2><div class="xgroups reveal" style="margin-bottom:40px">${exByC.map(g => `<div class="panel"><a href="#/course/${g.c.id}"><h3 style="font-size:1.1rem;margin-bottom:4px">${esc(g.c.title)}</h3></a>${examRows(g.l, true)}</div>`).join('')}</div>` : ''}
+      ${marks.length ? `<div class="toolbar" id="transcript" style="margin-bottom:14px"><h2 class="grow" style="margin:0">كشف علاماتي</h2><button class="btn btn-ghost btn-sm" id="prT">${ic('print', 16)} طباعة</button></div><div class="reveal" style="margin-bottom:40px">${transcriptHtml(marks)}</div>` : ''}
       <h2 style="margin-bottom:18px">دوراتي</h2>
       ${mine.length ? `<div class="grid-c">${mine.map(m => courseCard(m.c, m.pct)).join('')}</div>` : `<div class="empty">${ic('book', 36)}<p style="margin-bottom:14px">لم تسجّل في أي دورة بعد.</p><a class="btn btn-primary" href="#/courses">تصفّح الدورات</a></div>`}
       <h2 style="margin:46px 0 18px">شهاداتي</h2>
       ${certs.length ? `<div style="display:grid;gap:10px;margin-bottom:70px">${certs.map(ct => `<a class="cert-row reveal" href="#/cert/${ct.id}">${ic('award', 28)}<div style="flex:1"><strong>${esc(ct.courseTitle)}</strong><br><small class="muted">${fmtDate(ct.issuedAt)}${ct.score != null ? ` — ${ct.score}%` : ''}</small></div><small dir="ltr" class="muted">${esc(ct.id)}</small></a>`).join('')}</div>` : `<div class="empty" style="margin-bottom:70px">${ic('award', 36)}<p>تظهر شهاداتك هنا عند إتمام الدورات واجتياز اختباراتها.</p></div>`}
     </div>`,
+    mount() {
+      $('#prT') && ($('#prT').onclick = () => { const r = recs.find(x => x.program === 'academy') || recs[0]; printHtml('كشف علامات ' + S.user.name, docHead('كشف العلامات', esc(S.user.name) + (r ? ` — الرقم الجامعي <span dir="ltr">${esc(r.studentNo)}</span> — ${esc(programName(r.program))}` : '')) + transcriptHtml(marks)); });
+      if (location.hash.endsWith('#transcript')) setTimeout(() => $('#transcript')?.scrollIntoView({ behavior: 'smooth' }), 300);
+    }
   };
 }
 
@@ -1285,9 +1384,9 @@ const APP = {
   routes: [
     [/^\/?$/, viewHome], [/^\/courses(?:\?.*)?$/, viewCourses], [/^\/programs(?:#.*)?$/, viewPrograms], [/^\/ijaza\/([^/]+)$/, viewIjaza], [/^\/course\/([^/]+)$/, viewCourse],
     [/^\/learn\/([^/]+)(?:\/([^/]*))?$/, viewLearn, 'student'], [/^\/exam\/([^/]+)$/, viewExam, 'student'], [/^\/test\/([^/]+)$/, viewTest, 'student'],
-    [/^\/apply(?:\/([^/]+))?$/, viewApply], [/^\/login$/, viewLogin], [/^\/register$/, viewRegister], [/^\/me$/, viewMe, 'student'],
+    [/^\/apply(?:\/([^/]+))?$/, viewApply], [/^\/login$/, viewLogin], [/^\/register$/, viewRegister], [/^\/me(?:#.*)?$/, viewMe, 'student'],
     [/^\/cert\/([^/]+)(?:\/(ar|en))?$/, viewCert], [/^\/verify$/, viewVerify],
-    [/^\/calendar$/, viewCalendar], [/^\/about$/, viewAbout], [/^\/contact$/, viewContact], [/^\/terms$/, viewTerms]
+    [/^\/calendar$/, viewCalendar], [/^\/about$/, viewAbout], [/^\/contact$/, viewContact], [/^\/terms$/, viewTerms], [/^\/faq(?:#.*)?$/, viewFaq], [/^\/library$/, viewLibrary, 'student']
   ],
   guard(g, path) {
     if (g !== 'student' || (S.user && !S.user.isAdmin)) return false;

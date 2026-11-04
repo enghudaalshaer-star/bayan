@@ -1,6 +1,6 @@
 'use strict';
 /* بيان — النواة المشتركة: أدوات، أيقونات، طبقة البيانات، المصادقة، نوافذ، توجيه، تشغيل.
-   يُحمَّل في index.html و admin.html. كل تطبيق يعرّف APP = { layout, routes, guard, afterLogout }. */
+   يُحمَّل في index.html وصفحة لوحة التحكم. كل تطبيق يعرّف APP = { layout, routes, guard, afterLogout }. */
 /* ================= أدوات عامة ================= */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -20,7 +20,7 @@ function normUrl(u) {
 }
 const safeUrl = normUrl;
 const trim = (s, n) => { s = String(s || ''); return s.length > n ? s.slice(0, n).trim() + '…' : s; };
-const firstName = n => String(n || '').split(' ')[0];
+const firstName = n => { const w = String(n || '').trim().split(/\s+/); return /^(عبد|أبو|ابو|أم|ام)$/.test(w[0]) && w[1] ? w[0] + ' ' + w[1] : w[0]; };
 const go = p => { location.hash = '#' + p; };
 const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 const rnd4 = () => Math.random().toString(36).slice(2, 6).toUpperCase().padEnd(4, 'X');
@@ -82,6 +82,15 @@ const I = {
   xsoc: '<path d="M4 4l11.7 16H20L8.3 4z"/><path d="M4 20l6.8-6.8M13.2 10.8L20 4"/>',
   calendar: '<rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>',
   info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+  image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+  sheet: '<rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/>',
+  doc: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="13" y2="17"/>',
+  clip: '<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>',
+  folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+  help: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/>',
+  grad: '<path d="M22 10L12 5 2 10l10 5 10-5z"/><path d="M6 12v5c3 2 9 2 12 0v-5"/><line x1="22" y1="10" x2="22" y2="16"/>',
+  repeat: '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+  phone: '<path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/>',
   inbox: '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11L2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>'
 };
 const ic = (n, s = 20) => `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n] || I.book}</svg>`;
@@ -90,7 +99,26 @@ const logoMark = (s = 34) => `<svg width="${s}" height="${s}" viewBox="0 0 40 40
 const THEMES = { teal: ['#0B3D3A', '#2A8A82'], brass: ['#7A5A22', '#C49A4E'], ink: ['#1B2433', '#3D4E69'], olive: ['#3F4C22', '#7B8A43'], clay: ['#6E3626', '#B0664A'], plum: ['#43283F', '#7D4E72'] };
 const COURSE_ICONS = ['book', 'moonc', 'mosque', 'pen', 'heart', 'star', 'users', 'audio', 'text'];
 const LEVELS = ['مبتدئ', 'متوسط', 'متقدم'];
+/* التصنيفات: القائمة الافتراضية، والمشرف يضيف ويحذف من «الإعدادات ← التصنيفات» (settings.cats) */
 const CATS = ['عقيدة', 'فقه', 'حديث', 'تفسير', 'سيرة', 'تجويد', 'قرآن وعلومه', 'لغة عربية', 'لغة إنجليزية', 'تزكية', 'أصول', 'مقاصد', 'تربية', 'فكر معاصر'];
+const catsList = () => (Array.isArray(S.settings.cats) && S.settings.cats.length ? S.settings.cats : CATS);
+/* قائمة منسدلة للتصنيف مع خيار «تصنيف جديد» يُظهر حقلاً لكتابته؛ readCat يقرأ القيمة ويضيف الجديد إلى الإعدادات */
+function catSelect(name, val = '', req = true) {
+  const list = catsList(), extra = val && !list.includes(val) ? [val] : [];
+  return `<span class="cat-pick"><select name="${name}" data-cat ${req ? 'required' : ''}><option value="">اختر التصنيف…</option>${[...list, ...extra].map(x => `<option ${x === val ? 'selected' : ''}>${esc(x)}</option>`).join('')}<option value="__new">＋ تصنيف جديد…</option></select><input name="${name}_new" maxlength="40" placeholder="اكتب اسم التصنيف الجديد" hidden></span>`;
+}
+function wireCats(root) {
+  $$('select[data-cat]', root).forEach(s => { const inp = s.nextElementSibling; s.onchange = () => { const n = s.value === '__new'; inp.hidden = !n; inp.required = n; if (n) inp.focus(); }; });
+}
+async function readCat(fd, name) {
+  let v = String(fd.get(name) || '').trim();
+  if (v !== '__new') return v;
+  v = String(fd.get(name + '_new') || '').trim().replace(/\s+/g, ' ');
+  if (!v) throw new Error('اكتب اسم التصنيف الجديد');
+  const list = catsList();
+  if (!list.includes(v)) { const cats = [...list, v]; await DB.update('settings', 'main', { cats }); S.settings.cats = cats; }
+  return v;
+}
 const TYPE_LBL = { video: 'مرئي', audio: 'صوتي', pdf: 'ملف PDF', text: 'متن ونص' };
 const TYPE_IC = { video: 'play', audio: 'audio', pdf: 'file', text: 'text' };
 const DEFAULT_EXAM = () => ({ questions: [], passScore: 60, duration: 15, maxAttempts: 3, shuffle: true, reveal: 'mark', requireLessons: true });
@@ -296,16 +324,13 @@ function examWindow(t, courseId) {
    examKeys/{id}    الإجابات الصحيحة ونماذج الإجابة — المشرف فقط
    sittings/{examId}_{uid}  جلسة الطالب: الأسئلة المسحوبة، إجاباته، وقت البدء والتسليم من السيرفر
    grades/{examId}_{uid}    الدرجة — يكتبها المشرف (أو Cloud Function)، ويراها الطالب بعد نشر النتائج
-   examAccess/{examId}_{uid} من يحق له الامتحان الإكمالي */
-const EXAM_KINDS = { quiz: ['مذاكرة', 'pen', 'mut'], final: ['امتحان نهائي', 'award', 'ok'], makeup: ['امتحان إكمالي', 'key', 'warn'], oral: ['تقييم شفهي', 'audio', 'ok'] };
-const examKindName = k => (EXAM_KINDS[k] || EXAM_KINDS.quiz)[0];
+   للامتحان termId (الفصل الذي يُقدَّم فيه — للمواد الأكاديمية)، فالطالب الذي يعيد المادة يتقدّم لامتحانات فصله الجديد. */
+const EXAM_KINDS = { quiz: ['مذاكرة', 'pen', 'mut'], final: ['امتحان نهائي', 'award', 'ok'] };
+const examKindName = k => (EXAM_KINDS[k] || ['امتحان'])[0];
 const kindPill = k => `<span class="pill ${(EXAM_KINDS[k] || EXAM_KINDS.quiz)[2]}">${examKindName(k)}</span>`;
 const Q_TYPES = { mcq: 'اختيار من متعدد', tf: 'صح أو خطأ', short: 'إجابة قصيرة', essay: 'سؤال مقالي' };
 const Q_AUTO = t => t === 'mcq' || t === 'tf';
 const OPT_LETTERS = ['أ', 'ب', 'ج', 'د', 'هـ', 'و'];
-/* التقييم الشفهي للإجازات: التقدير يسجّله الشيخ، والدرجة اختيارية (وإلا تُحتسب الدرجة الاسمية للتقدير) */
-const ORAL_RATES = [['excellent', 'ممتاز', 95], ['vgood', 'جيد جداً', 85], ['good', 'جيد', 75], ['pass', 'مقبول', 65], ['fail', 'لم يجتز', 0]];
-const oralRate = k => ORAL_RATES.find(r => r[0] === k);
 const EXAM_GRACE = 90e3; /* مهلة الشبكة بعد انتهاء الوقت — يجب أن تطابق 90 ثانية في قواعد Firestore */
 const EXAM_PH = { soon: ['لم يُفتح بعد', 'mut'], open: ['مفتوح الآن', 'ok'], closed: ['انتهى موعده', 'mut'] };
 function examPhase(e, now = Date.now()) {
@@ -314,8 +339,8 @@ function examPhase(e, now = Date.now()) {
   return 'open';
 }
 const examWhen = e => +e.opensAt ? (+e.closesAt ? `${fmtDT(e.opensAt)} — ${toDateInput(e.opensAt) === toDateInput(e.closesAt) ? fmtTime(e.closesAt) : fmtDT(e.closesAt)}` : `من ${fmtDT(e.opensAt)}`) : +e.closesAt ? `حتى ${fmtDT(e.closesAt)}` : 'مفتوح دون موعد';
-const DEFAULT_OFFEXAM = kind => ({ kind, title: examKindName(kind), note: '', opensAt: 0, closesAt: 0, duration: kind === 'oral' ? 0 : kind === 'quiz' ? 30 : 90, passScore: 60, weight: { quiz: 40, final: 60, makeup: 0, oral: 100 }[kind] ?? 0,
-  shuffle: true, shuffleOpts: true, drawOn: false, draw: { mcq: 0, tf: 0, short: 0, essay: 0 }, nq: 0, counts: {}, examiner: '', capPass: false, makeupOf: '', published: false, resultsOut: false });
+const DEFAULT_OFFEXAM = kind => ({ kind, title: examKindName(kind), note: '', opensAt: 0, closesAt: 0, duration: kind === 'quiz' ? 30 : 90, passScore: 60, termId: '',
+  shuffle: true, shuffleOpts: true, drawOn: false, draw: { mcq: 0, tf: 0, short: 0, essay: 0 }, nq: 0, counts: {}, published: false, resultsOut: false });
 /* وقت السيرفر: Firestore يضع request.time والقواعد تتحقق منه؛ في الوضع التجريبي وقت الجهاز */
 const NOW_TS = () => S.live ? firebase.firestore.FieldValue.serverTimestamp() : Date.now();
 const tsMs = v => v == null ? 0 : typeof v === 'number' ? v : typeof v.toMillis === 'function' ? v.toMillis() : +v || 0;
@@ -358,21 +383,100 @@ function gradeSitting(s, qs, keys, prev = {}) {
 }
 /* آخر لحظة يُقبل فيها التسليم: بدء الطالب + المدة، ولا تتجاوز إغلاق الامتحان */
 const sitDeadline = (e, s) => { const st = tsMs(s.startedAt); let d = Infinity; if (+e.duration) d = st + e.duration * 6e4; if (+e.closesAt) d = Math.min(d, +e.closesAt); return d; };
-const examSort = (a, b) => (+a.opensAt || 9e15) - (+b.opensAt || 9e15) || ['quiz', 'final', 'makeup', 'oral'].indexOf(a.kind) - ['quiz', 'final', 'makeup', 'oral'].indexOf(b.kind);
-/* النتيجة النهائية للمادة: مجموع موزون للمذاكرات والنهائي (أو الإكمالي بدلاً منه) والشفهي */
-function courseTotal(exams, gradeOf, pass = 60) {
-  const fin = exams.find(e => e.kind === 'final'), mk = exams.find(e => e.kind === 'makeup');
+const examSort = (a, b) => (+a.opensAt || 9e15) - (+b.opensAt || 9e15) || ['quiz', 'final'].indexOf(a.kind) - ['quiz', 'final'].indexOf(b.kind);
+/* امتحانات فصل معيّن من امتحانات المادة: امتحانات الفصل نفسه، والامتحانات القديمة بلا فصل */
+const examsOfTerm = (exams, termId) => exams.filter(e => !e.termId || !termId || e.termId === termId);
+
+/* ================= العلامات وكشف الدرجات =================
+   توزيع علامة المادة (courses.gradeDist، المجموع 100): حضور + مشاركة + مذاكرة + امتحان نهائي.
+   marks/{uid}_{courseId}_{termId|x}: علامة الطالب في المادة في فصل — att, part, quiz, final (بالدرجات من حصّة كل جزء)،
+     total (من 100)، result (pass | fail | incomplete)، attempt (رقم المحاولة؛ الراسب يعيد المادة)، published (يراها الطالب).
+   المذاكرة والنهائي تُسحب تلقائياً من درجات الامتحانات الرسمية للفصل، والحضور والمشاركة يرصدها المشرف.
+   المعدل الفصلي والتراكمي: متوسط المجاميع موزوناً بساعات المادة (المادة بلا ساعات = ساعة واحدة)؛
+   والتراكمي يأخذ آخر محاولة لكل مادة، فإعادة المادة تحلّ محل رسوبها. */
+const GRADE_PARTS = [['att', 'الحضور', 'users'], ['part', 'المشاركة', 'pen'], ['quiz', 'المذاكرة', 'quiz'], ['final', 'الامتحان النهائي', 'award']];
+const DEFAULT_DIST = { att: 10, part: 10, quiz: 20, final: 60 };
+const gradeDist = c => { const d = { ...DEFAULT_DIST, ...(c?.gradeDist || {}) }; for (const [k] of GRADE_PARTS) d[k] = Math.max(0, +d[k] || 0); return d; };
+const distSum = d => GRADE_PARTS.reduce((a, [k]) => a + (+d[k] || 0), 0);
+const coursePass = c => +c?.gradePass || 60;
+const RESULT_ST = { pass: ['ناجح', 'ok'], fail: ['راسب', 'no'], incomplete: ['غير مكتمل', 'warn'] };
+const r1 = v => Math.round(v * 10) / 10;
+const numTxt = v => v == null || v === '' ? '—' : String(r1(+v));
+/* التقدير اللفظي للمجموع */
+function gradeWord(total, pass = 60, result) {
+  if (result === 'incomplete' || total == null) return '—';
+  if (result === 'fail' || total < pass) return 'راسب';
+  return total >= 90 ? 'ممتاز' : total >= 80 ? 'جيد جداً' : total >= 70 ? 'جيد' : 'مقبول';
+}
+/* المذاكرة والنهائي من درجات الامتحانات (نسبة مئوية × حصّة الجزء)، null إن لم تكتمل */
+function autoParts(c, exams, gradeOf) {
+  const d = gradeDist(c), out = {}, pub = exams.filter(e => e.published);
   const val = e => { const g = gradeOf(e); return g && !g.pending ? +g.score || 0 : null; };
-  let main = fin ? val(fin) : null, viaMakeup = false;
-  if (mk) { const g = gradeOf(mk); if (g && !g.pending) { let v = +g.score || 0; if (mk.capPass) v = Math.min(v, +mk.passScore || pass); if (main == null || v > main) { main = v; viaMakeup = true; } } }
-  const parts = exams.filter(e => e.kind === 'quiz' || e.kind === 'oral').map(e => [e, val(e)]);
-  if (fin) parts.push([fin, main]);
-  const wSum = parts.reduce((a, [e]) => a + (+e.weight || 0), 0);
-  if (!parts.length) return null;
-  const missing = parts.some(([, v]) => v == null);
-  const total = wSum ? parts.reduce((a, [e, v]) => a + (+e.weight || 0) * (v || 0), 0) / wSum : (main ?? parts[0][1] ?? 0);
-  const t = Math.round(total * 10) / 10;
-  return { total: t, passed: !missing && t >= pass, missing, viaMakeup };
+  const qs = pub.filter(e => e.kind === 'quiz'), fs = pub.filter(e => e.kind === 'final').sort((a, b) => (+b.opensAt || 0) - (+a.opensAt || 0));
+  if (qs.length) { const v = qs.map(val); out.quiz = v.every(x => x == null) ? null : r1(v.reduce((a, x) => a + (x || 0), 0) / qs.length * d.quiz / 100); out.quizN = v.filter(x => x != null).length + '/' + qs.length; }
+  if (fs.length) { const v = val(fs[0]); out.final = v == null ? null : r1(v * d.final / 100); }
+  return out;
+}
+/* مجموع المادة ونتيجتها من أجزاء العلامة */
+function computeMark(c, m) {
+  const d = gradeDist(c), pass = coursePass(c);
+  let total = 0, missing = false;
+  for (const [k] of GRADE_PARTS) { if (!d[k]) continue; const v = m[k]; if (v == null || v === '') { missing = true; continue; } total += Math.min(d[k], Math.max(0, +v)); }
+  total = r1(total);
+  const finMin = +c?.finalMin || 0, finPct = d.final ? (+m.final || 0) / d.final * 100 : 100;
+  const result = missing ? 'incomplete' : total >= pass && finPct >= finMin ? 'pass' : 'fail';
+  return { total, result, word: gradeWord(total, pass, result), lowFinal: !missing && total >= pass && finPct < finMin };
+}
+const markId = (uid, cid, tid) => `${uid}_${cid}_${tid || 'x'}`;
+const markHours = m => +m.hours > 0 ? +m.hours : 1;
+/* معدل مجموعة علامات (المكتملة فقط)، موزوناً بالساعات */
+function avgOf(marks) {
+  const l = marks.filter(m => m.result && m.result !== 'incomplete' && m.total != null);
+  const h = l.reduce((a, m) => a + markHours(m), 0);
+  return h ? r1(l.reduce((a, m) => a + (+m.total || 0) * markHours(m), 0) / h) : null;
+}
+/* آخر محاولة لكل مادة (للمعدل التراكمي) */
+const avgWord = v => v == null ? '' : v >= 90 ? 'ممتاز' : v >= 80 ? 'جيد جداً' : v >= 70 ? 'جيد' : v >= 60 ? 'مقبول' : 'ضعيف';
+const latestMarks = marks => Object.values(marks.reduce((o, m) => { const p = o[m.courseId]; if (!p || (+m.attempt || 1) > (+p.attempt || 1) || ((+m.attempt || 1) === (+p.attempt || 1) && (+m.termStart || 0) > (+p.termStart || 0))) o[m.courseId] = m; return o; }, {}));
+/* تجميع العلامات حسب الفصل بالترتيب الزمني */
+function marksByTerm(marks) {
+  const g = {};
+  for (const m of marks) (g[m.termId || 'x'] = g[m.termId || 'x'] || { termId: m.termId || '', name: m.termName || (m.termId ? 'فصل' : 'دورات ومواد خارج الفصول'), start: +m.termStart || 0, list: [] }).list.push(m);
+  return Object.values(g).sort((a, b) => (a.termId ? 0 : 1) - (b.termId ? 0 : 1) || a.start - b.start);
+}
+/* ملخص كشف الطالب: لكل فصل معدله، والتراكمي، والساعات المنجزة، والمواد الراسب فيها حالياً */
+function transcriptStats(marks) {
+  const terms = marksByTerm(marks).map(t => ({ ...t, avg: avgOf(t.list) }));
+  /* آخر محاولة مكتملة لكل مادة: المحاولة الجارية (غير المكتملة) لا تُلغي الرسوب السابق حتى تُرصد */
+  const latest = latestMarks(marks.filter(m => m.result && m.result !== 'incomplete')), cum = avgOf(latest);
+  const passedH = latest.filter(m => m.result === 'pass').reduce((a, m) => a + markHours(m), 0);
+  return { terms, cum, passedH, failing: latest.filter(m => m.result === 'fail'), passedN: latest.filter(m => m.result === 'pass').length };
+}
+/* كشف الدرجات بصيغة HTML (للعرض والطباعة): opts.admin يُظهر غير المعتمد */
+function transcriptHtml(marks, o = {}) {
+  if (!marks.length) return `<div class="empty">${ic('award', 32)}<p>${o.empty || 'لا توجد علامات معتمدة بعد.'}</p></div>`;
+  const st = transcriptStats(marks), latest = new Set(latestMarks(marks).map(m => m.id));
+  const head = `<tr><th>المادة</th><th>الساعات</th>${GRADE_PARTS.map(([, t]) => `<th>${t}</th>`).join('')}<th>المجموع</th><th>التقدير</th><th>النتيجة</th></tr>`;
+  const cell = (m, k) => { const d = (m.dist || DEFAULT_DIST)[k]; return d ? `${numTxt(m[k])}<small class="of">/${d}</small>` : '<span class="muted">—</span>'; };
+  return `<div class="tscript">
+    <div class="ts-sum"><div><span>المعدل التراكمي</span><b>${st.cum == null ? '—' : st.cum + '%'}</b><small>${avgWord(st.cum)}</small></div><div><span>المواد المجتازة</span><b>${st.passedN}</b><small>${st.passedH} ساعة</small></div><div><span>مواد يعيدها</span><b>${st.failing.length}</b><small>${st.failing.map(m => esc(m.courseTitle)).join('، ') || '—'}</small></div></div>
+    ${st.terms.map(t => `<section class="ts-term"><div class="ts-th"><h4>${esc(t.name)}</h4><span>المعدل الفصلي: <b>${t.avg == null ? '—' : t.avg + '%'}</b>${t.avg == null ? '' : ` — ${avgWord(t.avg)}`}</span></div>
+      <div class="tbl-wrap"><table class="ts-tbl"><thead>${head}</thead><tbody>${t.list.sort((a, b) => (+a.order || 99) - (+b.order || 99) || String(a.courseTitle).localeCompare(b.courseTitle, 'ar')).map(m => `<tr class="${m.result === 'fail' ? 'fail' : ''}">
+        <td><b>${esc(m.courseTitle)}</b>${+m.attempt > 1 ? ` <span class="pill warn">إعادة ${+m.attempt - 1 > 1 ? '(' + (+m.attempt - 1) + ')' : ''}</span>` : ''}${o.admin && !m.published ? ' <span class="pill mut">غير معتمدة</span>' : ''}${m.result === 'fail' && latest.has(m.id) ? '<br><small style="color:var(--danger)">يعيد المادة</small>' : m.result === 'fail' ? '<br><small class="muted">أُعيدت في فصل لاحق</small>' : ''}</td>
+        <td>${m.hours || '—'}</td>${GRADE_PARTS.map(([k]) => `<td>${cell(m, k)}</td>`).join('')}<td><b>${numTxt(m.total)}</b></td><td>${esc(m.word || gradeWord(m.total, m.pass, m.result))}</td><td>${stPill(RESULT_ST, m.result || 'incomplete')}</td></tr>`).join('')}</tbody></table></div></section>`).join('')}
+  </div>`;
+}
+/* صفوف كشف الدرجات لملف Excel */
+function transcriptRows(marks) {
+  const st = transcriptStats(marks), out = [];
+  for (const t of st.terms) {
+    out.push([t.name, '', '', '', '', '', '', '', '', `المعدل الفصلي: ${t.avg ?? '—'}`]);
+    out.push(['المادة', 'الساعات', ...GRADE_PARTS.map(([, x]) => x), 'المجموع', 'التقدير', 'النتيجة', 'المحاولة']);
+    for (const m of t.list) out.push([m.courseTitle, m.hours || '', ...GRADE_PARTS.map(([k]) => m[k] ?? ''), m.total ?? '', m.word || '', (RESULT_ST[m.result] || ['—'])[0], +m.attempt || 1]);
+    out.push([]);
+  }
+  out.push(['المعدل التراكمي', st.cum ?? '—', '', 'الساعات المجتازة', st.passedH]);
+  return out;
 }
 /* الرقم الجامعي: سنتان من السنة + 1 أكاديمي / 2 إجازات + تسلسل من 4 أرقام، مثل 2610007 (للمشرف فقط) */
 async function nextStudentNo(p) {
@@ -433,6 +537,180 @@ const SOCIALS = [['facebook', 'فيسبوك'], ['youtube', 'يوتيوب'], ['te
 const MSG_TOPICS = ['استفسار عام', 'التسجيل في دورة', 'مشكلة تقنية', 'الشهادات', 'اقتراح'];
 const waNum = s => String(s || '').replace(/\D/g, '').replace(/^00/, '');
 const waLink = (n, text = '') => `https://wa.me/${waNum(n)}${text ? '?text=' + encodeURIComponent(text) : ''}`;
+/* رموز الدول للهاتف: [الرمز، الاسم، مفتاح الاتصال] — الدول العربية أولاً */
+const COUNTRIES_AR = [['SY', 'سوريا', '963'], ['SA', 'السعودية', '966'], ['AE', 'الإمارات', '971'], ['QA', 'قطر', '974'], ['KW', 'الكويت', '965'], ['BH', 'البحرين', '973'], ['OM', 'عُمان', '968'], ['YE', 'اليمن', '967'],
+  ['JO', 'الأردن', '962'], ['LB', 'لبنان', '961'], ['PS', 'فلسطين', '970'], ['IQ', 'العراق', '964'], ['EG', 'مصر', '20'], ['SD', 'السودان', '249'], ['LY', 'ليبيا', '218'], ['TN', 'تونس', '216'],
+  ['DZ', 'الجزائر', '213'], ['MA', 'المغرب', '212'], ['MR', 'موريتانيا', '222'], ['SO', 'الصومال', '252'], ['DJ', 'جيبوتي', '253'], ['KM', 'جزر القمر', '269']];
+const COUNTRIES_OTHER = [['TR', 'تركيا', '90'], ['DE', 'ألمانيا', '49'], ['GB', 'المملكة المتحدة', '44'], ['FR', 'فرنسا', '33'], ['NL', 'هولندا', '31'], ['BE', 'بلجيكا', '32'], ['SE', 'السويد', '46'], ['NO', 'النرويج', '47'],
+  ['DK', 'الدنمارك', '45'], ['FI', 'فنلندا', '358'], ['AT', 'النمسا', '43'], ['CH', 'سويسرا', '41'], ['IT', 'إيطاليا', '39'], ['ES', 'إسبانيا', '34'], ['PT', 'البرتغال', '351'], ['IE', 'أيرلندا', '353'],
+  ['GR', 'اليونان', '30'], ['CY', 'قبرص', '357'], ['MT', 'مالطا', '356'], ['PL', 'بولندا', '48'], ['CZ', 'التشيك', '420'], ['SK', 'سلوفاكيا', '421'], ['HU', 'المجر', '36'], ['RO', 'رومانيا', '40'],
+  ['BG', 'بلغاريا', '359'], ['RS', 'صربيا', '381'], ['HR', 'كرواتيا', '385'], ['SI', 'سلوفينيا', '386'], ['BA', 'البوسنة والهرسك', '387'], ['AL', 'ألبانيا', '355'], ['XK', 'كوسوفو', '383'], ['MK', 'مقدونيا الشمالية', '389'],
+  ['ME', 'الجبل الأسود', '382'], ['UA', 'أوكرانيا', '380'], ['RU', 'روسيا', '7'], ['BY', 'بيلاروسيا', '375'], ['MD', 'مولدوفا', '373'], ['LT', 'ليتوانيا', '370'], ['LV', 'لاتفيا', '371'], ['EE', 'إستونيا', '372'],
+  ['IS', 'آيسلندا', '354'], ['LU', 'لوكسمبورغ', '352'], ['GE', 'جورجيا', '995'], ['AM', 'أرمينيا', '374'], ['AZ', 'أذربيجان', '994'], ['KZ', 'كازاخستان', '7'], ['UZ', 'أوزبكستان', '998'], ['TJ', 'طاجيكستان', '992'],
+  ['KG', 'قيرغيزستان', '996'], ['TM', 'تركمانستان', '993'], ['AF', 'أفغانستان', '93'], ['IR', 'إيران', '98'], ['PK', 'باكستان', '92'], ['IN', 'الهند', '91'], ['BD', 'بنغلاديش', '880'], ['LK', 'سريلانكا', '94'],
+  ['NP', 'نيبال', '977'], ['MV', 'جزر المالديف', '960'], ['MY', 'ماليزيا', '60'], ['ID', 'إندونيسيا', '62'], ['SG', 'سنغافورة', '65'], ['BN', 'بروناي', '673'], ['TH', 'تايلاند', '66'], ['PH', 'الفلبين', '63'],
+  ['VN', 'فيتنام', '84'], ['KH', 'كمبوديا', '855'], ['MM', 'ميانمار', '95'], ['CN', 'الصين', '86'], ['HK', 'هونغ كونغ', '852'], ['TW', 'تايوان', '886'], ['JP', 'اليابان', '81'], ['KR', 'كوريا الجنوبية', '82'],
+  ['MN', 'منغوليا', '976'], ['AU', 'أستراليا', '61'], ['NZ', 'نيوزيلندا', '64'], ['US', 'الولايات المتحدة', '1'], ['CA', 'كندا', '1'], ['MX', 'المكسيك', '52'], ['BR', 'البرازيل', '55'], ['AR', 'الأرجنتين', '54'],
+  ['CL', 'تشيلي', '56'], ['CO', 'كولومبيا', '57'], ['PE', 'بيرو', '51'], ['VE', 'فنزويلا', '58'], ['EC', 'الإكوادور', '593'], ['BO', 'بوليفيا', '591'], ['PY', 'باراغواي', '595'], ['UY', 'الأوروغواي', '598'],
+  ['CU', 'كوبا', '53'], ['DO', 'جمهورية الدومينيكان', '1'], ['PA', 'بنما', '507'], ['CR', 'كوستاريكا', '506'], ['GT', 'غواتيمالا', '502'], ['TT', 'ترينيداد وتوباغو', '1'], ['GY', 'غيانا', '592'], ['SR', 'سورينام', '597'],
+  ['NG', 'نيجيريا', '234'], ['GH', 'غانا', '233'], ['SN', 'السنغال', '221'], ['ML', 'مالي', '223'], ['NE', 'النيجر', '227'], ['TD', 'تشاد', '235'], ['BF', 'بوركينا فاسو', '226'], ['GN', 'غينيا', '224'],
+  ['CI', 'ساحل العاج', '225'], ['CM', 'الكاميرون', '237'], ['GM', 'غامبيا', '220'], ['SL', 'سيراليون', '232'], ['LR', 'ليبيريا', '231'], ['BJ', 'بنين', '229'], ['TG', 'توغو', '228'], ['ET', 'إثيوبيا', '251'],
+  ['ER', 'إريتريا', '291'], ['KE', 'كينيا', '254'], ['UG', 'أوغندا', '256'], ['TZ', 'تنزانيا', '255'], ['RW', 'رواندا', '250'], ['BI', 'بوروندي', '257'], ['SS', 'جنوب السودان', '211'], ['CD', 'الكونغو الديمقراطية', '243'],
+  ['CG', 'الكونغو', '242'], ['GA', 'الغابون', '241'], ['AO', 'أنغولا', '244'], ['ZM', 'زامبيا', '260'], ['ZW', 'زيمبابوي', '263'], ['MW', 'مالاوي', '265'], ['MZ', 'موزمبيق', '258'], ['MG', 'مدغشقر', '261'],
+  ['MU', 'موريشيوس', '230'], ['ZA', 'جنوب أفريقيا', '27'], ['NA', 'ناميبيا', '264'], ['BW', 'بوتسوانا', '267']];
+const COUNTRIES = [...COUNTRIES_AR, ...COUNTRIES_OTHER];
+/* أطول مفتاح دولة يطابق بداية الرقم الدولي */
+const ccOf = digits => { digits = String(digits || '').replace(/\D/g, ''); return COUNTRIES.map(c => c[2]).filter(d => digits.startsWith(d)).sort((a, b) => b.length - a.length)[0] || ''; };
+const defaultCc = () => String(S.settings.defaultCc || '963');
+/* حقل هاتف دولي: قائمة بكل الدول + الرقم المحلي. القيمة المحفوظة بصيغة +مفتاح رقم، مثل: +963 944123456 */
+/* يفصل رقماً محفوظاً إلى رمز الدولة والرقم المحلي: +963 944… أو 00963… أو 9639… (دولي) أو 0944… (محلي بالرمز الافتراضي) */
+function splitPhone(v) {
+  const raw = String(v || '').trim(), dg = raw.replace(/\D/g, '');
+  if (!dg) return { cc: defaultCc(), local: '' };
+  const intl = raw.startsWith('+') || dg.startsWith('00') || (!dg.startsWith('0') && dg.length >= 11);
+  const d = dg.replace(/^00/, ''), cc = intl ? ccOf(d) : '';
+  return cc ? { cc, local: d.slice(cc.length) } : { cc: defaultCc(), local: dg.replace(/^0+/, '') };
+}
+function phoneField(name, value = '', { required = false, placeholder = 'الرقم دون الصفر الأول' } = {}) {
+  const { cc, local } = splitPhone(value);
+  const opt = ([k, n, d]) => `<option value="${d}" data-iso="${k}" ${d === cc && k === (COUNTRIES.find(x => x[2] === cc) || [])[0] ? 'selected' : ''}>${n} +${d}</option>`;
+  return `<span class="phone-in" dir="ltr"><select name="${name}_cc" aria-label="رمز الدولة" data-cc>${`<optgroup label="الدول العربية">${COUNTRIES_AR.map(opt).join('')}</optgroup><optgroup label="دول أخرى">${COUNTRIES_OTHER.map(opt).join('')}</optgroup>`}</select><input name="${name}_num" type="tel" inputmode="tel" autocomplete="tel-national" maxlength="16" ${required ? 'required' : ''} value="${esc(local)}" placeholder="${esc(placeholder)}"></span>`;
+}
+/* يقرأ حقل الهاتف ويرجع +مفتاح رقم، أو '' إن كان فارغاً، ويرمي خطأ إن كان الرقم غير صالح */
+function readPhone(fd, name, label = 'رقم الجوال') {
+  const cc = String(fd.get(name + '_cc') || defaultCc()).replace(/\D/g, '');
+  let n = String(fd.get(name + '_num') || '').replace(/\D/g, '');
+  if (!n) return '';
+  if (n.startsWith('00')) { n = n.slice(2); const c2 = ccOf(n); if (c2) return `+${c2} ${n.slice(c2.length)}`; }
+  if (n.startsWith(cc) && n.length > cc.length + 6) n = n.slice(cc.length);
+  n = n.replace(/^0+/, '');
+  if (n.length < 5 || n.length > 14) throw new Error(`${label} غير صحيح — اكتب الرقم المحلي دون رمز الدولة`);
+  return `+${cc} ${n}`;
+}
+const telHref = p => 'tel:+' + waNum(p);
+/* أرقام التواصل في الإعدادات: settings.phones = [{label, number, wa}] — وتُقرأ القيمة القديمة whatsapp إن لم توجد */
+const contactPhones = () => { const st = S.settings, l = (st.phones || []).filter(p => waNum(p.number)); return l.length ? l : waNum(st.whatsapp) ? [{ label: 'واتساب', number: '+' + waNum(st.whatsapp), wa: true }] : []; };
+const showPhone = p => { const d = waNum(p), cc = ccOf(d); return cc ? `+${cc} ${d.slice(cc.length)}` : '+' + d; };
+
+/* ================= مرفقات الدروس والدورات (المكتبة) =================
+   courses.attachments[]: {id, title, kind, url, name, size, mime, path (مسار Firebase Storage إن رُفع), lessonId ('' = للدورة كلها), at}
+   الرفع إلى Firebase Storage (library/{courseId}/…)، وفي الوضع التجريبي يُحفظ الملف الصغير داخل المتصفح. ويمكن وضع رابط بدل الرفع. */
+const ATT_KINDS = { pdf: ['PDF', 'file', '#C0392B'], excel: ['Excel', 'sheet', '#1D7044'], word: ['Word', 'doc', '#2B579A'], file: ['ملف', 'folder', '#6A7774'], image: ['صورة', 'image', '#8E5BB5'], audio: ['تسجيل صوتي', 'audio', '#B88E45'], video: ['فيديو', 'video', '#1E6F6A'] };
+const attKindName = k => (ATT_KINDS[k] || ATT_KINDS.file)[0];
+const EXT_KIND = { pdf: 'pdf', doc: 'word', docx: 'word', odt: 'word', rtf: 'word', xls: 'excel', xlsx: 'excel', xlsm: 'excel', csv: 'excel', ods: 'excel', jpg: 'image', jpeg: 'image', png: 'image', gif: 'image', webp: 'image', svg: 'image', heic: 'image', bmp: 'image',
+  mp3: 'audio', m4a: 'audio', wav: 'audio', ogg: 'audio', oga: 'audio', aac: 'audio', opus: 'audio', flac: 'audio', amr: 'audio', mp4: 'video', webm: 'video', mov: 'video', m4v: 'video', mkv: 'video', avi: 'video', ogv: 'video' };
+function attKindOf(name = '', mime = '', url = '') {
+  const ext = (String(name || url).split(/[?#]/)[0].match(/\.([a-z0-9]{2,5})$/i) || [])[1]?.toLowerCase();
+  if (ext && EXT_KIND[ext]) return EXT_KIND[ext];
+  if (/^image\//.test(mime)) return 'image'; if (/^audio\//.test(mime)) return 'audio'; if (/^video\//.test(mime)) return 'video';
+  if (/pdf/.test(mime)) return 'pdf'; if (/sheet|excel|csv/.test(mime)) return 'excel'; if (/word|msword|document/.test(mime)) return 'word';
+  const m = normUrl(url) ? mediaInfo(url) : null;
+  if (m && /يوتيوب|Vimeo/.test(m.label)) return 'video'; if (m && /ساوند/.test(m.label)) return 'audio';
+  if (/docs\.google\.com\/spreadsheets/.test(url)) return 'excel'; if (/docs\.google\.com\/document/.test(url)) return 'word';
+  return 'file';
+}
+const fmtSize = b => !+b ? '' : b < 1024 ? b + ' بايت' : b < 1048576 ? Math.round(b / 1024) + ' ك.ب' : (b / 1048576).toFixed(b < 10485760 ? 1 : 0) + ' م.ب';
+const ATT_MAX = 200 * 1048576, ATT_LOCAL_MAX = 1.5 * 1048576; /* يطابق حدّ storage.rules */
+async function fbStorage() {
+  if (!firebase.storage) await loadScript(FB_BASE + 'firebase-storage-compat.js');
+  return firebase.storage();
+}
+/* رفع ملف مرفق: يرجع {url, path, size, mime} */
+async function uploadAttachment(file, courseId, onProgress = () => {}) {
+  if (file.size > ATT_MAX) throw new Error('الملف أكبر من 200 ميغابايت — ارفعه على يوتيوب أو Google Drive وضع رابطه');
+  if (!S.live) {
+    if (file.size > ATT_LOCAL_MAX) throw new Error('في الوضع التجريبي تُحفظ الملفات في المتصفح، فالحد 1.5 ميغابايت — ضع رابطاً بدلاً من الرفع، أو اربط Firebase');
+    const url = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => rej(new Error('تعذّرت قراءة الملف')); r.readAsDataURL(file); });
+    onProgress(100); return { url, path: '', size: file.size, mime: file.type || '' };
+  }
+  const st = await fbStorage(), safe = file.name.replace(/[^\w.\-\u0600-\u06FF]+/g, '_').slice(-80), path = `library/${courseId}/${genId()}_${safe}`;
+  const task = st.ref(path).put(file, { contentType: file.type || 'application/octet-stream', contentDisposition: `inline; filename*=UTF-8''${encodeURIComponent(file.name)}` });
+  await new Promise((res, rej) => task.on('state_changed', s => onProgress(Math.round(s.bytesTransferred / s.totalBytes * 100)), e => rej(new Error(/unauthorized|permission/i.test(e.code || e.message) ? 'رفض Firebase Storage الرفع — تأكد من تفعيل Storage ونشر storage.rules ومن أنك مشرف' : /bucket|not-found|404/i.test(e.code || e.message) ? 'Firebase Storage غير مفعّل في المشروع بعد — فعّله من Build ← Storage، أو ضع رابطاً' : e.message)), res));
+  return { url: await task.snapshot.ref.getDownloadURL(), path, size: file.size, mime: file.type || '' };
+}
+async function deleteAttachmentFile(a) { if (a?.path && S.live) { try { (await fbStorage()).ref(a.path).delete(); } catch { } } }
+/* معاينة المرفق داخل الصفحة: صورة، صوت، فيديو، PDF، ومستندات Word/Excel عبر عارض Office للروابط العامة */
+function attPreview(a) {
+  const u = a.url || '', data = u.startsWith('data:'), m = !data ? mediaInfo(u, a.kind === 'audio' ? 'audio' : a.kind === 'pdf' ? 'pdf' : 'video') : null;
+  if (a.kind === 'image') return `<div class="att-view img"><img src="${esc(u)}" alt="${esc(a.title)}"></div>`;
+  if (a.kind === 'audio') return m && m.kind === 'iframe' ? mediaEmbed({ url: u, type: 'audio', title: a.title }) : `<div class="audio-native">${ic('audio', 40)}<audio controls preload="metadata" src="${esc(u)}"></audio></div>`;
+  if (a.kind === 'video') return m && m.kind === 'iframe' ? mediaEmbed({ url: u, type: 'video', title: a.title }) : `<div class="frame video"><video controls playsinline preload="metadata" src="${esc(u)}"></video></div>`;
+  if (a.kind === 'pdf') return data ? `<div class="frame doc"><iframe src="${esc(u)}" title="${esc(a.title)}"></iframe></div>` : mediaEmbed({ url: u, type: 'pdf', title: a.title });
+  if ((a.kind === 'word' || a.kind === 'excel') && !data && /^https:/.test(u)) {
+    const g = mediaInfo(u, 'pdf'); if (g && g.kind === 'iframe') return mediaEmbed({ url: u, type: 'pdf', title: a.title });
+    return `<div class="frame doc"><iframe src="https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(u)}" title="${esc(a.title)}" loading="lazy"></iframe></div><p class="hint" style="margin-top:6px">تُعرض عبر عارض Microsoft Office. إن لم تظهر فحمّل الملف.</p>`;
+  }
+  return `<div class="media-empty">${ic(ATT_KINDS[a.kind]?.[1] || 'folder', 36)}<p style="margin:10px 0">لا معاينة لهذا النوع — حمّل الملف وافتحه على جهازك.</p></div>`;
+}
+const canPreview = a => ['image', 'audio', 'video', 'pdf'].includes(a.kind) || ((a.kind === 'word' || a.kind === 'excel') && /^https:/.test(a.url || ''));
+const attBadge = (k, s = 18) => { const [, i, col] = ATT_KINDS[k] || ATT_KINDS.file; return `<span class="att-ic" style="--ac:${col}">${ic(i, s)}</span>`; };
+const attDownloadName = a => a.name || `${a.title}${a.kind === 'pdf' ? '.pdf' : ''}`;
+/* صف مرفق في قائمة: الأيقونة، العنوان، النوع والحجم والدرس، وأزرار المعاينة والتنزيل */
+function attRow(a, { lesson = '', course = '' } = {}) {
+  return `<div class="att-row" data-att="${esc(a.id)}">${attBadge(a.kind)}<span class="grow"><b>${esc(a.title)}</b><small>${attKindName(a.kind)}${a.size ? ' — ' + fmtSize(a.size) : ''}${lesson ? ' — ' + esc(lesson) : ''}${course ? ' — ' + esc(course) : ''}</small></span>
+    ${canPreview(a) ? `<button type="button" class="btn btn-ghost btn-sm" data-preview="${esc(a.id)}">${ic('eye', 15)} عرض</button>` : ''}<a class="btn btn-ghost btn-sm" href="${esc(a.url)}" ${a.url?.startsWith('data:') ? `download="${esc(attDownloadName(a))}"` : 'target="_blank" rel="noopener"'}>${ic('download', 15)} تنزيل</a></div>`;
+}
+function openAttPreview(a) {
+  modal(esc(a.title), `${attPreview(a)}<div class="toolbar" style="margin:14px 0 0"><span class="grow muted">${attKindName(a.kind)}${a.size ? ' — ' + fmtSize(a.size) : ''}</span><a class="btn btn-primary btn-sm" href="${esc(a.url)}" ${a.url?.startsWith('data:') ? `download="${esc(attDownloadName(a))}"` : 'target="_blank" rel="noopener"'}>${ic('download', 15)} تنزيل</a></div>`, { wide: true, noFoot: true });
+}
+/* ربط أزرار «عرض» في حاوية فيها صفوف مرفقات */
+const wireAtts = (root, list) => root && root.addEventListener('click', e => { const b = e.target.closest('[data-preview]'); if (!b) return; const a = list.find(x => x.id === b.dataset.preview); if (a) openAttPreview(a); });
+
+/* ================= الأسئلة الشائعة =================
+   faqs/{id}: q, a, cat (القسم)، order، published — يقرؤها الجميع، ويكتبها المشرف */
+const DEFAULT_FAQS = [
+  ['القبول والتسجيل', 'كيف ألتحق بالبرنامج الأكاديمي؟', 'أنشئ حساباً، ثم افتح صفحة «القبول» واختر البرنامج واملأ طلب الالتحاق وارفع صورة مؤهلك. تتابع حالة طلبك من «حسابي»، وعند قبولك يصدر رقمك الجامعي وتُسجَّل تلقائياً في مواد فصلك.'],
+  ['القبول والتسجيل', 'ما شروط القبول؟', 'البرنامج الأكاديمي: شهادة الثانوية على الأقل. برنامج الإجازات: أن يكون عمر المتقدم فوق عشر سنوات وأن يتقن العربية. التفاصيل في صفحة «البرامج الدراسية».'],
+  ['القبول والتسجيل', 'هل الدراسة مجانية؟', 'تتواصل معك الإدارة بعد القبول بكل ما يخص الدراسة. لأي استفسار راسلنا من صفحة «تواصل معنا».'],
+  ['الدراسة', 'هل أختار موادي بنفسي؟', 'لا. في البرنامج الأكاديمي تُسجَّل تلقائياً في مواد فصلك عند قيدك فيه، وتُفتح مواد الفصل التالي بعد إنهاء فصلك.'],
+  ['الدراسة', 'أين أجد ملفات الدروس والملخصات؟', 'في صفحة كل درس تحت «مرفقات الدرس»، وكل مرفقات موادك مجتمعة في «مكتبتي»: ملفات PDF وWord وExcel وصور وتسجيلات صوتية وفيديو.'],
+  ['الامتحانات والعلامات', 'كيف تُحسب علامة المادة؟', 'من 100 موزّعة على الحضور والمشاركة والمذاكرة والامتحان النهائي، ويُبيَّن توزيع كل مادة في صفحتها. تنجح إذا بلغ مجموعك درجة نجاح المادة (60 غالباً).'],
+  ['الامتحانات والعلامات', 'ماذا يحدث إن رسبت في مادة؟', 'تعيد المادة في فصل لاحق: تُسجَّل فيها من جديد وتتقدّم لامتحاناتها، وتحلّ علامتك الجديدة محل الرسوب في المعدل التراكمي.'],
+  ['الامتحانات والعلامات', 'أين أرى علاماتي ومعدلي؟', 'في «حسابي ← كشف علاماتي»: علامة كل مادة بأجزائها، والمعدل الفصلي والتراكمي، مع زر للطباعة.'],
+  ['الحساب', 'نسيت كلمة المرور، ماذا أفعل؟', 'تواصل مع إدارة المنصة من صفحة «تواصل معنا» أو واتساب لتعيين كلمة مرور جديدة لحسابك.'],
+  ['الشهادات', 'كيف يتحقق أحد من شهادتي؟', 'لكل شهادة رمز تحقق ورمز QR. يفتح أي شخص صفحة «التحقق من شهادة» ويكتب الرمز ليرى بياناتها.']
+];
+
+/* ================= الطباعة والتصدير ================= */
+/* طباعة محتوى HTML في إطار مخفي بخطوط المنصة وأنماطها */
+function printHtml(title, body) {
+  const fr = document.createElement('iframe'); fr.style.cssText = 'position:fixed;inset:auto 0 0 auto;width:0;height:0;border:0;visibility:hidden'; document.body.append(fr);
+  const css = [...document.querySelectorAll('link[rel=stylesheet]')].map(l => `<link rel="stylesheet" href="${l.href}">`).join('');
+  fr.contentDocument.open();
+  fr.contentDocument.write(`<!doctype html><html lang="ar" dir="rtl" data-theme="light"><head><meta charset="utf-8"><title>${esc(title)}</title>${css}<style>@page{size:A4 portrait;margin:14mm}body{background:#fff!important;color:#000;padding:0}.print-doc{max-width:none}</style></head><body class="printing"><div class="print-doc">${body}</div></body></html>`);
+  fr.contentDocument.close();
+  const go2 = () => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } finally { setTimeout(() => fr.remove(), 1500); } };
+  fr.onload = () => (fr.contentDocument.fonts?.ready || Promise.resolve()).then(() => setTimeout(go2, 150));
+}
+/* ترويسة رسمية للوثائق المطبوعة */
+const docHead = (title, sub = '') => `<header class="doc-head">${logoMark(46)}<div class="grow"><b>${esc(S.settings.name)}</b><small>${esc(S.settings.tagline)}</small></div><div class="doc-t"><h1>${esc(title)}</h1>${sub ? `<small>${sub}</small>` : ''}<small>تاريخ الإصدار: ${fmtDate(Date.now())}</small></div></header>`;
+/* تصدير Excel حقيقي (xlsx، من اليمين لليسار) عبر SheetJS، وإن تعذّر تحميله فـ CSV */
+const XLSX_URL = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+async function exportXlsx(file, sheets) {
+  try {
+    if (!window.XLSX) await loadScript(XLSX_URL);
+    const wb = XLSX.utils.book_new(); wb.Workbook = { Views: [{ RTL: true }] };
+    for (const sh of sheets) {
+      const ws = XLSX.utils.aoa_to_sheet(sh.rows);
+      ws['!cols'] = (sh.rows[0] || []).map((_, i) => ({ wch: Math.min(48, Math.max(8, ...sh.rows.map(r => String(r[i] ?? '').length + 2))) }));
+      XLSX.utils.book_append_sheet(wb, ws, String(sh.name || 'ورقة').replace(/[\\/?*[\]:]/g, ' ').slice(0, 31));
+    }
+    XLSX.writeFile(wb, file.endsWith('.xlsx') ? file : file + '.xlsx');
+  } catch (e) {
+    console.warn(e); toast('تعذّر تحميل مكتبة Excel — صُدّر الملف بصيغة CSV', 'err');
+    downloadFile(file.replace(/\.xlsx$/, '') + '.csv', toCSV(sheets[0].rows));
+  }
+}
+
+/* ================= تذكّر الدخول ================= */
+/* «تذكّرني»: يبقى الدخول بعد إغلاق المتصفح، ويُحفظ اسم المستخدم لتعبئته في المرة القادمة. وإلا تنتهي الجلسة بإغلاق المتصفح */
+const Remember = {
+  k: scope => 'bayan_remember_' + scope,
+  get(scope) { try { return JSON.parse(localStorage.getItem(this.k(scope))) || null; } catch { return null; } },
+  set(scope, user, on) { on ? localStorage.setItem(this.k(scope), JSON.stringify({ user })) : localStorage.removeItem(this.k(scope)); }
+};
+const rememberBox = scope => { const r = Remember.get(scope); return `<label class="check remember"><input type="checkbox" name="remember" ${r || !localStorage.getItem('bayan_remember_set_' + scope) ? 'checked' : ''}> تذكّرني على هذا الجهاز</label>`; };
+const rememberedUser = scope => Remember.get(scope)?.user || '';
 /* نص طويل بسيط: فقرات تفصلها سطور فارغة، والسطر الذي يبدأ بـ «## » عنوان فرعي */
 /* السطر الذي يبدأ بـ «- » عنصر قائمة، و«1. » عنصر قائمة مرقّمة، و{name} يُستبدل باسم المنصة */
 const richText = t => String(t || '').replace(/\{name\}/g, S.settings.name || '').trim().split(/\n\s*\n/).map(block => {
@@ -481,27 +759,28 @@ const safeGet = (c, id) => DB.get(c, id).catch(() => null);
 const safeList = (c, f) => DB.list(c, f).catch(() => []);
 
 /* ================= المصادقة: المتصفح =================
-   جلستان منفصلتان: bayan_session للطالب (الموقع)، bayan_admin_session للمشرف (admin.html) */
+   جلستان منفصلتان: bayan_session للطالب (الموقع)، bayan_admin_session للمشرف (لوحة التحكم) */
 const AuthLocal = {
   canReset: true,
   key() { return S.scope === 'admin' ? 'bayan_admin_session' : 'bayan_session'; },
-  sess(v) { const k = this.key(); if (v === undefined) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } } v ? localStorage.setItem(k, JSON.stringify(v)) : localStorage.removeItem(k); },
+  /* remember: الجلسة في localStorage (تبقى) أو sessionStorage (تنتهي بإغلاق المتصفح) */
+  sess(v, remember = true) { const k = this.key(); if (v === undefined) { try { return JSON.parse(localStorage.getItem(k) || sessionStorage.getItem(k)); } catch { return null; } } localStorage.removeItem(k); sessionStorage.removeItem(k); if (v) (remember ? localStorage : sessionStorage).setItem(k, JSON.stringify(v)); },
   async init() {
     const s = this.sess(); if (!s) return null;
     if (S.scope === 'admin') return s.admin ? { uid: 'admin', name: 'المشرف', isAdmin: true } : null;
     const u = await DB.get('users', s.uid); if (!u || u.disabled) { this.sess(null); return null; }
     return { uid: u.id, name: u.name, username: u.username, isAdmin: false };
   },
-  async login(user, pass) {
+  async login(user, pass, remember = true) {
     const us = await DB.list('users', { username: user.toLowerCase() });
     if (!us.length || us[0].passHash !== await sha(pass)) throw new Error('اسم المستخدم أو كلمة المرور غير صحيحة');
     if (us[0].disabled) throw new Error('هذا الحساب موقوف — تواصل مع إدارة المنصة');
-    this.sess({ uid: us[0].id }); return { uid: us[0].id, name: us[0].name, username: us[0].username, isAdmin: false };
+    this.sess({ uid: us[0].id }, remember); return { uid: us[0].id, name: us[0].name, username: us[0].username, isAdmin: false };
   },
-  async adminLogin(user, pass) {
+  async adminLogin(user, pass, remember = true) {
     const st = S.settings, h = await sha(pass);
     if (user !== (st.adminUser || 'admin') || h !== (st.adminHash || await sha('admin123'))) throw new Error('بيانات دخول المشرف غير صحيحة');
-    this.sess({ admin: true }); return { uid: 'admin', name: 'المشرف', isAdmin: true };
+    this.sess({ admin: true }, remember); return { uid: 'admin', name: 'المشرف', isAdmin: true };
   },
   async createUser({ name, nameEn, username, password, phone }, selfLogin) {
     username = username.toLowerCase();
@@ -530,7 +809,9 @@ const AuthFB = {
     if (!a && p && p.disabled) { await fauth.signOut(); throw new Error('هذا الحساب موقوف — تواصل مع إدارة المنصة'); }
     return { uid: u.uid, name: p?.name || (a ? 'المشرف' : u.email), username: p?.username, isAdmin: a };
   },
-  async login(user, pass) {
+  async persist(remember) { try { await fauth.setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION); } catch { } },
+  async login(user, pass, remember = true) {
+    await this.persist(remember);
     try { const c = await fauth.signInWithEmailAndPassword(toEmail(user), pass); return await this.profile(c.user); }
     catch (e) { throw new Error(fbErr(e)); }
   },
@@ -539,6 +820,7 @@ const AuthFB = {
     const prof = { name, nameEn: nameEn || '', username, phone: phone || '', createdAt: Date.now(), disabled: false };
     try {
       if (selfLogin) {
+        await this.persist(true);
         const c = await fauth.createUserWithEmailAndPassword(toEmail(username), password);
         await DB.set('users', c.user.uid, prof); return { uid: c.user.uid, name, username, isAdmin: false };
       }
@@ -547,8 +829,8 @@ const AuthFB = {
       await DB.set('users', c.user.uid, prof); await sec.auth().signOut(); return c.user.uid;
     } catch (e) { throw new Error(fbErr(e)); }
   },
-  async adminLogin(user, pass) {
-    const p = await this.login(user, pass);
+  async adminLogin(user, pass, remember = true) {
+    const p = await this.login(user, pass, remember);
     if (!p.isAdmin) { await fauth.signOut(); throw new Error('هذا الحساب ليس حساب مشرف'); }
     return p;
   },
@@ -611,12 +893,17 @@ function demoCourses() {
   ].map((c, i) => ({ ...c, published: true, createdAt: Date.now() - i * 1000 }));
 }
 async function seedCourses() { for (const c of demoCourses()) await DB.set('courses', genId(), c); }
+/* البيانات التجريبية الكاملة في js/demo.js — تُحمَّل عند الحاجة فقط (الوضع التجريبي، أو زر الإعدادات) */
+const DEMO_JS = 'js/demo.js';
+async function loadDemo() { if (typeof seedDemo !== 'function') await loadScript(DEMO_JS); }
 async function ensureLocalSeed() {
-  if (localStorage.getItem('bayan_seeded')) return;
-  await seedCourses();
-  for (const c of academyCourses()) await DB.set('courses', genId(), c);
-  await DB.set('users', 'demo', { name: 'عبد الله أحمد', username: 'demo', phone: '', passHash: await sha('123456'), createdAt: Date.now(), disabled: false });
-  localStorage.setItem('bayan_seeded', '1');
+  if (localStorage.getItem('bayan_seeded_v2')) return;
+  try { await loadDemo(); await seedDemo(); }
+  catch (e) {
+    console.error(e);
+    if (!localStorage.getItem('bayan_seeded')) { await seedCourses(); for (const c of academyCourses()) await DB.set('courses', genId(), c); await DB.set('users', 'demo', { name: 'عبد الله أحمد', username: 'demo', phone: '', passHash: await sha('123456'), createdAt: Date.now(), disabled: false }); }
+  }
+  localStorage.setItem('bayan_seeded', '1'); localStorage.setItem('bayan_seeded_v2', '1');
 }
 
 /* ================= واجهة: تنبيهات ونوافذ ================= */
