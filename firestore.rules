@@ -18,7 +18,10 @@ service cloud.firestore {
     match /settings/{id}     { allow read: if true; allow write: if isAdmin(); }
     match /courses/{id}      { allow read: if true; allow write: if isAdmin(); }
     match /certificates/{id} {
-      allow read: if true; allow create: if isAdmin() || own(request.resource.data); allow delete: if isAdmin();
+      // الطالب يُصدر شهادته بنفسه فقط في الدورات التي ليس لها امتحانات رسمية (offExams)؛ وإلا يُصدرها المشرف بعد اعتماد النتائج
+      allow read: if true; allow delete: if isAdmin();
+      allow create: if isAdmin() || (own(request.resource.data)
+        && get(/databases/$(db)/documents/courses/$(request.resource.data.courseId)).data.get('offExams', 0) == 0);
       allow update: if isAdmin() || (own(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nameEn']));
     }
     // أنواع الشهادات وتصاميمها المرفوعة: يقرؤها الجميع لعرض الشهادة، ويعدّلها المشرف
@@ -94,6 +97,40 @@ service cloud.firestore {
         && (request.resource.data.uid == '' || (signedIn() && request.resource.data.uid == request.auth.uid));
       allow read, update, delete: if isAdmin();
     }
+
+    // ===== الامتحانات الرسمية =====
+    // الامتحان يبدأ على السيرفر فقط (Cloud Function startExam بصلاحيات المشرف، لا تمر بهذه القواعد):
+    // تتحقق من التسجيل والموعد وصلاحية الإكمالي، وتسحب أسئلة الطالب، وتنشئ جلسته sittings وورقته الخاصة sitPapers.
+    // exams: بيانات عامة بلا أسئلة. examPapers (بنك الأسئلة) و examKeys (الإجابات): للمشرف فقط — لا يقرؤها أي طالب.
+    // sitPapers: ورقة الطالب (أسئلته فقط بلا إجابات) — يقرؤها صاحبها. sittings: يعدّل الطالب إجاباته ويسلّم قبل انتهاء وقته فقط.
+    // grades: يكتبها المشرف أو السيرفر، ويقرؤها الطالب بعد إعلان النتائج (resultsOut).
+    function examOf(eid) { return get(/databases/$(db)/documents/exams/$(eid)).data; }
+    function inTime(s, e) {
+      return (e.get('duration', 0) == 0 || request.time <= s.startedAt + duration.value(e.duration * 60 + 90, 's'))
+        && (e.get('closesAt', 0) == 0 || request.time.toMillis() <= e.closesAt + 90000);
+    }
+    function sitUpdate(o, d) {
+      return d.diff(o).affectedKeys().hasOnly(['answers','status','submittedAt','savedAt'])
+        && d.answers is map && d.answers.size() <= 300 && d.savedAt == request.time
+        && (d.status == 'started' || (d.status == 'submitted' && d.submittedAt == request.time))
+        && inTime(o, examOf(o.examId));
+    }
+    match /exams/{id}      { allow read: if isAdmin() || resource.data.published == true; allow write: if isAdmin(); }
+    match /examPapers/{id} { allow read, write: if isAdmin(); }
+    match /examKeys/{id}   { allow read, write: if isAdmin(); }
+    match /examAccess/{id} { allow read: if ownRead(); allow write: if isAdmin(); }
+    match /sitPapers/{id}  { allow read: if ownRead(); allow write: if isAdmin(); }
+    match /sittings/{id} {
+      allow read: if ownRead();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (own(resource.data) && resource.data.status == 'started' && sitUpdate(resource.data, request.resource.data));
+    }
+    match /grades/{id} {
+      allow read: if isAdmin() || resource == null || (own(resource.data) && examOf(resource.data.examId).get('resultsOut', false) == true);
+      allow write: if isAdmin();
+    }
+
+    // محاولات «الاختبار الذاتي» (تدريبي، يُصحَّح في المتصفح)
     match /attempts/{id} {
       allow read: if isAdmin() || own(resource.data);
       allow create: if own(request.resource.data);
