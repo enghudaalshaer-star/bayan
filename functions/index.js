@@ -1,7 +1,7 @@
 'use strict';
 /* =====================================================================
    بيان — الامتحانات الرسمية على السيرفر (Cloud Functions، خطة Blaze)
-   1) startExam      : يبدأ الامتحان — يتحقق من الصلاحية والموعد، ويسحب أسئلة الطالب،
+   1) startExam      : يبدأ الامتحان — يتحقق من الصلاحية وفصل الطالب والموعد، ويسحب أسئلة الطالب،
                        وينشئ جلسته sittings وورقته sitPapers (أسئلته فقط، بلا إجابات).
                        بنك الأسئلة examPapers والإجابات examKeys لا يصلان للطالب أبداً.
    2) gradeOnSubmit  : عند التسليم يصحّح الاختيار وصح/خطأ والقصير المطابق، ويكتب grades
@@ -41,15 +41,16 @@ exports.startExam = onCall({ cors: true }, async req => {
   const eSnap = await db.doc(`exams/${eid}`).get();
   if (!eSnap.exists) fail('not-found', 'الامتحان غير موجود');
   const e = eSnap.data();
-  if (!e.published || e.kind === 'oral') fail('failed-precondition', 'الامتحان غير متاح');
+  if (!e.published || !['quiz', 'final'].includes(e.kind)) fail('failed-precondition', 'الامتحان غير متاح');
 
-  const [enr, usr, acc, admin] = await Promise.all([
-    db.doc(`enrollments/${uid}_${e.courseId}`).get(), db.doc(`users/${uid}`).get(),
-    e.kind === 'makeup' ? db.doc(`examAccess/${sid}`).get() : null, db.doc(`admins/${uid}`).get()]);
+  const [enr, usr, admin] = await Promise.all([
+    db.doc(`enrollments/${uid}_${e.courseId}`).get(), db.doc(`users/${uid}`).get(), db.doc(`admins/${uid}`).get()]);
   if (admin.exists) fail('permission-denied', 'حساب المشرف لا يدخل الامتحانات — استعمل حساب طالب للتجربة');
   if (!enr.exists) fail('permission-denied', 'لست مسجّلاً في هذه المادة');
   if (usr.exists && usr.data().disabled) fail('permission-denied', 'حسابك موقوف — تواصل مع الإدارة');
-  if (e.kind === 'makeup' && !acc?.exists) fail('permission-denied', 'هذا الامتحان لمن تقرّر له الإكمالي فقط');
+  // امتحان فصل معيّن: لطلاب المادة المسجّلين في ذلك الفصل (ومن يعيد المادة فيه)
+  const et = e.termId || '', st = enr.data().termId || '';
+  if (et && st && et !== st) fail('permission-denied', 'هذا الامتحان لطلاب فصل آخر');
 
   return db.runTransaction(async tx => {
     const sRef = db.doc(`sittings/${sid}`), pRef = db.doc(`sitPapers/${sid}`);
