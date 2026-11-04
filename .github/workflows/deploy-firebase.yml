@@ -1,4 +1,4 @@
-# بيان — نشر دوال Firebase وقواعد Firestore تلقائياً عند كل رفع إلى main
+# بيان — نشر دوال Firebase وقواعد Firestore و Storage تلقائياً عند كل رفع إلى main
 # يعمل فقط حين تتغيّر ملفات الدوال أو القواعد، ويمكن تشغيله يدوياً من تبويب Actions ← Run workflow.
 # يحتاج سرّاً واحداً في المستودع: FIREBASE_SERVICE_ACCOUNT (محتوى ملف JSON لحساب الخدمة).
 # الموقع نفسه لا يُنشر من هنا — Netlify ينشره من GitHub كما كان.
@@ -10,6 +10,7 @@ on:
     paths:
       - 'functions/**'
       - 'firestore.rules'
+      - 'storage.rules'
       - 'firebase.json'
       - '.firebaserc'
       - '.github/workflows/deploy-firebase.yml'
@@ -45,3 +46,9 @@ jobs:
 
       - name: النشر
         run: npx --yes firebase-tools@15 deploy --only functions,firestore:rules --project bayan-4e7fb --non-interactive --force
+
+      # قواعد Storage (مرفقات الدروس) في خطوة منفصلة: إن لم يُفعَّل Storage بعد في المشروع
+      # تفشل هذه الخطوة وحدها دون أن تمنع نشر الدوال وقواعد Firestore.
+      - name: نشر قواعد Storage
+        continue-on-error: true
+        run: npx --yes firebase-tools@15 deploy --only storage --project bayan-4e7fb --non-interactive --force
