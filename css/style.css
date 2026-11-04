@@ -841,3 +841,56 @@ a.reg-row:hover{background:var(--mist)}
 .sp-courses{display:grid;gap:6px;padding:0 14px 14px}
 .reg-row.off{opacity:.65}
 .reg-row.off .ic{color:var(--muted)}
+
+/* ===== الامتحانات الرسمية ===== */
+.lessons .xrow{display:flex;align-items:center;gap:14px;flex:1;min-width:0;color:inherit}
+.lessons .xrow .t{flex:1;min-width:0}
+.lessons a.xrow:hover .t{color:var(--teal)}
+.lessons .xrow .pill{flex:none}
+.xgroups{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.xgroups .panel{padding:18px 20px}
+.xnote{display:flex;gap:10px;align-items:flex-start;text-align:start;margin:14px auto 0;max-width:520px;padding:12px 14px;border-radius:14px;background:var(--surface-2);border-inline-start:3px solid var(--brass)}
+.xnote .ic{flex:none;color:var(--brass);margin-top:3px}
+.xnote p{margin:0;white-space:pre-line;font-size:.94rem}
+.xrules{list-style:none;padding:0;margin:16px auto;max-width:460px;display:grid;gap:8px;text-align:start;font-size:.92rem;color:var(--muted)}
+.xrules li{display:flex;gap:8px;align-items:flex-start}
+.xrules .ic{flex:none;margin-top:4px;color:var(--teal)}
+.qmeta{font-size:.82rem;color:var(--muted);margin-bottom:6px}
+.ans-in{font-size:1.05rem;line-height:1.9}
+textarea.ans-in{min-height:220px;resize:vertical}
+.receipt{display:inline-grid;gap:2px;margin:18px auto 4px;padding:12px 26px;border-radius:14px;border:1.5px dashed var(--line);background:var(--surface-2)}
+.receipt span,.receipt small{font-size:.8rem;color:var(--muted)}
+.receipt b{font-family:var(--display);font-size:1.3rem;letter-spacing:.06em}
+.mrows{display:grid;gap:6px}
+.mrow{display:grid;grid-template-columns:1fr auto;gap:2px 12px;align-items:center;padding:10px 14px;border-radius:12px;background:var(--surface-2)}
+.mrow b{font-variant-numeric:tabular-nums}
+.mrow b.ok{color:var(--ok)} .mrow b.no{color:var(--danger)}
+.mrow p{grid-column:1/-1;margin:4px 0 0;font-size:.9rem;color:var(--muted)}
+.oral-res{display:grid;gap:4px;justify-items:center;margin:18px auto 6px;padding:18px 26px;border-radius:18px;max-width:420px;border:1.5px solid var(--line)}
+.oral-res.ok{border-color:var(--ok);background:color-mix(in srgb,var(--ok) 8%,transparent)}
+.oral-res.no{border-color:var(--danger);background:color-mix(in srgb,var(--danger) 6%,transparent)}
+.oral-res b{font-family:var(--display);font-size:1.7rem}
+.oral-res>span{font-weight:700}
+.oral-res small{color:var(--muted)}
+.oral-res p{margin:6px 0 0;white-space:pre-line}
+/* الإدارة */
+.tabs a.tab{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+.xhead{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:-6px 0 14px}
+.xinfo{display:flex;gap:14px;align-items:flex-start}
+.xinfo>.ic{flex:none;color:var(--teal);margin-top:2px}
+.xinfo p{margin:4px 0 0;font-size:.92rem}
+.xwarn{display:flex;gap:10px;align-items:flex-start;padding:12px 16px;margin-bottom:16px;border-radius:14px;background:color-mix(in srgb,var(--warn) 10%,transparent);border:1px solid color-mix(in srgb,var(--warn) 30%,transparent);font-size:.92rem}
+.xwarn>.ic{flex:none;color:var(--warn);margin-top:3px}
+.form .row.draw{grid-template-columns:repeat(4,1fr)}
+@media (max-width:760px){.form .row.draw{grid-template-columns:1fr 1fr}}
+.gq-list{display:grid;gap:12px;margin-bottom:6px}
+.gq{display:grid;gap:10px;padding:14px 16px;border-radius:16px;border:1px solid var(--line);background:var(--surface-2)}
+.gq.need{border-color:var(--warn);background:color-mix(in srgb,var(--warn) 6%,var(--surface-2))}
+.gq-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.gq-t{margin:0;font-weight:600;line-height:1.8;white-space:pre-line}
+.gq-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media (max-width:640px){.gq-cols{grid-template-columns:1fr}}
+.gq-cols>div{padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line);min-width:0}
+.gq-cols small{display:block;color:var(--muted);font-size:.78rem;margin-bottom:4px}
+.ans-txt{white-space:pre-wrap;line-height:1.9;max-height:280px;overflow:auto}
+details.panel summary{cursor:pointer}
