@@ -100,7 +100,7 @@ service cloud.firestore {
 
     // ===== الامتحانات الرسمية =====
     // الامتحان يبدأ على السيرفر فقط (Cloud Function startExam بصلاحيات المشرف، لا تمر بهذه القواعد):
-    // تتحقق من التسجيل والموعد وصلاحية الإكمالي، وتسحب أسئلة الطالب، وتنشئ جلسته sittings وورقته الخاصة sitPapers.
+    // تتحقق من التسجيل وفصل الطالب والموعد، وتسحب أسئلة الطالب، وتنشئ جلسته sittings وورقته الخاصة sitPapers.
     // exams: بيانات عامة بلا أسئلة. examPapers (بنك الأسئلة) و examKeys (الإجابات): للمشرف فقط — لا يقرؤها أي طالب.
     // sitPapers: ورقة الطالب (أسئلته فقط بلا إجابات) — يقرؤها صاحبها. sittings: يعدّل الطالب إجاباته ويسلّم قبل انتهاء وقته فقط.
     // grades: يكتبها المشرف أو السيرفر، ويقرؤها الطالب بعد إعلان النتائج (resultsOut).
@@ -118,7 +118,6 @@ service cloud.firestore {
     match /exams/{id}      { allow read: if isAdmin() || resource.data.published == true; allow write: if isAdmin(); }
     match /examPapers/{id} { allow read, write: if isAdmin(); }
     match /examKeys/{id}   { allow read, write: if isAdmin(); }
-    match /examAccess/{id} { allow read: if ownRead(); allow write: if isAdmin(); }
     match /sitPapers/{id}  { allow read: if ownRead(); allow write: if isAdmin(); }
     match /sittings/{id} {
       allow read: if ownRead();
@@ -129,6 +128,14 @@ service cloud.firestore {
       allow read: if isAdmin() || resource == null || (own(resource.data) && examOf(resource.data.examId).get('resultsOut', false) == true);
       allow write: if isAdmin();
     }
+
+    // العلامات {uid}_{courseId}_{termId|x}: حضور ومشاركة ومذاكرة ونهائي ومجموع ونتيجة — يرصدها المشرف، ويراها الطالب بعد اعتمادها (published)
+    match /marks/{id} {
+      allow read: if isAdmin() || resource == null || (own(resource.data) && resource.data.get('published', false) == true);
+      allow write: if isAdmin();
+    }
+    // الأسئلة الشائعة: يقرؤها الجميع، ويكتبها المشرف
+    match /faqs/{id} { allow read: if true; allow write: if isAdmin(); }
 
     // محاولات «الاختبار الذاتي» (تدريبي، يُصحَّح في المتصفح)
     match /attempts/{id} {

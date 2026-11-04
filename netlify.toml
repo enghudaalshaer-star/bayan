@@ -2,3 +2,23 @@
 [build]
   publish = "."
   command = ""
+
+# لوحة التحكم على رابط خاص (cp-7q4x9k.html) لا يظهر في الموقع: المسارات المعتادة تعطي «غير موجود»
+[[redirects]]
+  from = "/admin*"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/dashboard*"
+  to = "/404.html"
+  status = 404
+  force = true
+
+# لا تُفهرس لوحة التحكم في محركات البحث، ولا تُعرض داخل إطار في موقع آخر
+[[headers]]
+  for = "/cp-7q4x9k.html"
+  [headers.values]
+    X-Robots-Tag = "noindex, nofollow"
+    X-Frame-Options = "DENY"
+    Cache-Control = "no-store"
