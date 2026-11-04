@@ -2,7 +2,7 @@
 /* بيان — لوحة التحكم (admin.html). منفصلة عن الموقع بجلسة دخول مستقلة. يعتمد على core.js */
 S.scope = 'admin';
 function adminShell(active, title, html, actions = '') {
-  const items = [['', 'لوحة المؤشرات', 'chart'], ['courses', 'الدورات', 'book'], ['admissions', 'القبول', 'file'], ['registry', 'القيد والفصول', 'calendar'], ['students', 'الطلاب', 'users'], ['results', 'نتائج الاختبارات', 'quiz'], ['certs', 'الشهادات', 'award'], ['messages', 'الرسائل', 'inbox'], ['settings', 'الإعدادات', 'settings']];
+  const items = [['', 'لوحة المؤشرات', 'chart'], ['courses', 'الدورات', 'book'], ['admissions', 'القبول', 'file'], ['registry', 'القيد والفصول', 'calendar'], ['students', 'الطلاب', 'users'], ['results', 'الامتحانات والنتائج', 'quiz'], ['certs', 'الشهادات', 'award'], ['messages', 'الرسائل', 'inbox'], ['settings', 'الإعدادات', 'settings']];
   return `<div class="admin"><aside class="side" id="side">
     <a class="logo" href="#/">${logoMark()}<span>${esc(S.settings.name)}</span><em>إدارة</em></a>
     <nav>${items.map(([k, t, i]) => `<a class="side-link ${active === k ? 'on' : ''}" href="#/${k}">${ic(i, 19)} ${t}${k === 'messages' ? `<span class="side-badge" id="unread" ${S.unread ? '' : 'hidden'}>${S.unread || ''}</span>` : k === 'admissions' ? `<span class="side-badge" id="newapps" ${S.newApps ? '' : 'hidden'}>${S.newApps || ''}</span>` : ''}</a>`).join('')}</nav>
@@ -13,8 +13,8 @@ function adminShell(active, title, html, actions = '') {
 }
 /* ================= لوحة التحكم ================= */
 async function loadAll() {
-  const [users, courses, enrollments, attempts, certificates, records, applications] = await Promise.all(['users', 'courses', 'enrollments', 'attempts', 'certificates', 'records', 'applications'].map(c => safeList(c)));
-  return { users, courses, enrollments, attempts, certificates, records, applications };
+  const [users, courses, enrollments, attempts, certificates, records, applications, exams, sittings, grades] = await Promise.all(['users', 'courses', 'enrollments', 'attempts', 'certificates', 'records', 'applications', 'exams', 'sittings', 'grades'].map(c => safeList(c)));
+  return { users, courses, enrollments, attempts, certificates, records, applications, exams, sittings, grades };
 }
 async function adminDash() {
   const d = await loadAll();
@@ -25,14 +25,19 @@ async function adminDash() {
   const recent = [...d.attempts].sort((a, b) => b.at - a.at).slice(0, 7);
   const newSt = [...d.users].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 6);
   const kpi = (i, n, t, suf = '') => `<div class="kpi">${ic(i, 22)}<b><span data-count="${n}">0</span>${suf}</b><span>${t}</span></div>`;
+  /* أوراق امتحانات بانتظار التصحيح: سُلّمت (أو انتهى وقتها) ولم تُصحَّح، أو فيها أسئلة مقالية لم تُصحَّح */
+  const xm = Object.fromEntries(d.exams.map(e => [e.id, e])), gk = new Set(d.grades.map(g => g.id));
+  const toGrade = d.sittings.filter(s => xm[s.examId] && gradable(xm[s.examId], s) && !gk.has(s.id)).length + d.grades.filter(g => g.pending > 0).length;
+  const upEx = d.exams.filter(e => e.published && e.kind !== 'oral' && examPhase(e) !== 'closed' && +e.opensAt).sort(examSort).slice(0, 5);
   return {
     active: '', title: 'لوحة المؤشرات',
-    html: `<div class="kpis">${kpi('file', d.applications.filter(a => ['submitted', 'review'].includes(a.status)).length, 'طلب التحاق بانتظار القرار')}${kpi('shield', d.records.filter(r => r.status === 'active').length, 'طالب منتظم في البرامج')}${kpi('users', d.users.length, 'حساب طالب')}${kpi('book', d.courses.filter(c => c.published).length, `دورة منشورة من ${d.courses.length}`)}${kpi('play', d.enrollments.length, 'تسجيل في الدورات')}${kpi('award', d.certificates.length, 'شهادة صادرة')}${kpi('chart', avg, 'متوسط درجات الاختبارات', '%')}${kpi('check', passRate, 'نسبة النجاح', '%')}</div>
+    html: `<div class="kpis">${kpi('file', d.applications.filter(a => ['submitted', 'review'].includes(a.status)).length, 'طلب التحاق بانتظار القرار')}${kpi('shield', d.records.filter(r => r.status === 'active').length, 'طالب منتظم في البرامج')}${kpi('users', d.users.length, 'حساب طالب')}${kpi('book', d.courses.filter(c => c.published).length, `دورة منشورة من ${d.courses.length}`)}${kpi('play', d.enrollments.length, 'تسجيل في الدورات')}${kpi('award', d.certificates.length, 'شهادة صادرة')}${kpi('pen', toGrade, 'ورقة امتحان بانتظار التصحيح')}${kpi('chart', avg, 'متوسط درجات الاختبارات', '%')}${kpi('check', passRate, 'نسبة النجاح', '%')}</div>
       <div class="cols">
         <div class="panel"><h3>التسجيل حسب الدورة</h3>${per.length ? `<div class="hbars">${per.map(p => `<div class="hbar"><span class="t" title="${esc(p.t)}">${esc(p.t)}</span><div class="track"><i data-w="${Math.round(p.n / mx * 100)}"></i></div><b>${p.n}</b></div>`).join('')}</div>` : '<p class="muted">لا توجد دورات بعد.</p>'}</div>
         <div class="panel"><h3>أحدث الطلاب</h3>${newSt.length ? `<div class="rowlist">${newSt.map(u => `<div class="ritem"><span class="n tick">${ic('user', 14)}</span><div class="grow"><strong>${esc(u.name)}</strong><br><small dir="ltr">${esc(u.username)}</small></div><small>${fmtDate(u.createdAt)}</small></div>`).join('')}</div>` : '<p class="muted">لا يوجد طلاب بعد.</p>'}</div>
       </div>
-      <div class="panel" style="margin-top:20px"><h3>أحدث محاولات الاختبار</h3>${recent.length ? `<div class="tbl-wrap"><table><thead><tr><th>الطالب</th><th>الدورة</th><th>الدرجة</th><th>النتيجة</th><th>الوقت</th></tr></thead><tbody>${recent.map(a => `<tr><td>${esc(a.userName)}</td><td>${esc(a.courseTitle)}</td><td>${a.score}%</td><td><span class="pill ${a.passed ? 'ok' : 'no'}">${a.passed ? 'ناجح' : 'لم ينجح'}</span></td><td>${fmtDT(a.at)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لم يُجرِ أحد اختباراً بعد.</p>'}</div>`
+      ${upEx.length ? `<div class="panel" style="margin-top:20px"><div class="toolbar"><h3 class="grow" style="margin:0">الامتحانات القادمة والمفتوحة</h3><a class="btn btn-ghost btn-sm" href="#/results">كل الامتحانات</a></div><div class="rowlist">${upEx.map(e => `<a class="ritem" href="#/exam/${e.id}/grading">${ic(EXAM_KINDS[e.kind]?.[1] || 'quiz', 19)}<div class="grow"><strong>${esc(e.title)}</strong> — ${esc(e.courseTitle || '')}<br><small>${examWhen(e)}</small></div>${stPill(EXAM_PH, examPhase(e))}</a>`).join('')}</div></div>` : ''}
+      <div class="panel" style="margin-top:20px"><h3>أحدث محاولات الاختبار الذاتي</h3>${recent.length ? `<div class="tbl-wrap"><table><thead><tr><th>الطالب</th><th>الدورة</th><th>الدرجة</th><th>النتيجة</th><th>الوقت</th></tr></thead><tbody>${recent.map(a => `<tr><td>${esc(a.userName)}</td><td>${esc(a.courseTitle)}</td><td>${a.score}%</td><td><span class="pill ${a.passed ? 'ok' : 'no'}">${a.passed ? 'ناجح' : 'لم ينجح'}</span></td><td>${fmtDT(a.at)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لم يُجرِ أحد اختباراً بعد.</p>'}</div>`
   };
 }
 
@@ -60,14 +65,14 @@ async function adminCourses() {
       $('.admin-main').onclick = async e => {
         const p = e.target.closest('[data-pub]'), d = e.target.closest('[data-del]');
         if (p) { const c = courses.find(x => x.id === p.dataset.pub); c.published = !c.published; await DB.update('courses', c.id, { published: c.published }); p.className = 'pill ' + (c.published ? 'ok' : 'mut'); p.textContent = c.published ? 'منشورة' : 'مسودة'; toast(c.published ? 'نُشرت الدورة' : 'أصبحت الدورة مسودة', 'ok'); if (c.published) syncCourse(c).then(n => n && toast(`سُجّل فيها ${n} طالب مقيّد في مستواها`, 'ok')).catch(() => {}); }
-        if (d) { const c = courses.find(x => x.id === d.dataset.del); if (await confirmBox(`حذف دورة «${esc(c.title)}» نهائياً؟ لن تُحذف شهادات الطلاب الصادرة.`, 'حذف')) { await DB.del('courses', c.id); await DB.del('courseLive', c.id).catch(() => {}); toast('حُذفت الدورة'); route(); } }
+        if (d) { const c = courses.find(x => x.id === d.dataset.del); if (await confirmBox(`حذف دورة «${esc(c.title)}» نهائياً مع امتحاناتها الرسمية ودرجاتها؟ لن تُحذف شهادات الطلاب الصادرة.`, 'حذف')) { for (const x of await safeList('exams', { courseId: c.id })) await deleteExamCascade(x.id); await DB.del('courses', c.id); await DB.del('courseLive', c.id).catch(() => {}); toast('حُذفت الدورة'); route(); } }
       };
     }
   };
 }
 
 async function adminCourse(id) {
-  const [c, ctypes, lv0] = await Promise.all([DB.get('courses', id), safeList('certTypes'), safeGet('courseLive', id)]);
+  const [c, ctypes, lv0, offx0] = await Promise.all([DB.get('courses', id), safeList('certTypes'), safeGet('courseLive', id), safeList('exams', { courseId: id })]);
   if (!c) return { active: 'courses', title: 'غير موجودة', html: '<div class="empty">الدورة غير موجودة.</div>' };
   c.lessons = c.lessons || []; c.exam = { ...DEFAULT_EXAM(), ...(c.exam || {}) };
   const lv = { url: '', meetingId: '', passcode: '', note: '', sessions: [], ...(lv0 || {}) }; delete lv.id;
@@ -76,13 +81,16 @@ async function adminCourse(id) {
   return {
     active: 'courses', title: esc(c.title),
     actions: `<a class="btn btn-ghost btn-sm" href="#/courses">${ic('prev', 16)} الدورات</a><a class="btn btn-ghost btn-sm" href="index.html#/course/${c.id}" target="_blank">${ic('eye', 16)} معاينة</a>`,
-    html: `<div class="tabs" role="tablist"><button class="tab on" data-t="info">بيانات الدورة</button><button class="tab" data-t="lessons">الدروس <span class="pill mut" id="lc">${c.lessons.length}</span></button><button class="tab" data-t="exam">الاختبار <span class="pill mut" id="qc">${c.exam.questions.length}</span></button><button class="tab" data-t="live">${ic('video', 15)} اللقاءات المباشرة <span class="pill ${c.online ? 'ok' : 'mut'}" id="lvc">${c.online ? (lv.sessions || []).length : 'معطّلة'}</span></button></div>
+    html: `<div class="tabs" role="tablist"><button class="tab on" data-t="info">بيانات الدورة</button><button class="tab" data-t="lessons">الدروس <span class="pill mut" id="lc">${c.lessons.length}</span></button><button class="tab" data-t="offx">${ic('shield', 15)} الامتحانات الرسمية <span class="pill ${offx0.length ? 'ok' : 'mut'}" id="xc">${offx0.length}</span></button><button class="tab" data-t="exam">اختبار ذاتي <span class="pill mut" id="qc">${c.exam.questions.length}</span></button><button class="tab" data-t="live">${ic('video', 15)} اللقاءات المباشرة <span class="pill ${c.online ? 'ok' : 'mut'}" id="lvc">${c.online ? (lv.sessions || []).length : 'معطّلة'}</span></button></div>
       <div id="pane"></div>`,
     mount() {
-      const pane = $('#pane'); let tab = 'info';
+      const pane = $('#pane'); let tab = new URLSearchParams(location.hash.split('?')[1] || '').get('t') || 'info';
+      if (!$(`.tab[data-t="${tab}"]`)) tab = 'info';
+      $$('.tab').forEach(x => x.classList.toggle('on', x.dataset.t === tab));
       $$('.tab').forEach(t => t.onclick = () => { tab = t.dataset.t; $$('.tab').forEach(x => x.classList.toggle('on', x === t)); draw(); });
       const counts = () => { $('#lc').textContent = c.lessons.length; $('#qc').textContent = c.exam.questions.length; };
-      const draw = () => { ({ info, lessons, exam, live })[tab](); };
+      const offx = () => offExamsPane(c, pane, n => { const p = $('#xc'); p.textContent = n; p.className = 'pill ' + (n ? 'ok' : 'mut'); }).catch(err => { pane.innerHTML = `<div class="empty">${esc(err.message)}</div>`; });
+      const draw = () => { pane.onclick = null; ({ info, lessons, exam, live, offx })[tab](); };
       const liveCount = () => { const p = $('#lvc'); p.className = 'pill ' + (c.online ? 'ok' : 'mut'); p.textContent = c.online ? lv.sessions.length : 'معطّلة'; };
       const info = () => {
         pane.innerHTML = `<form class="form panel" id="fi" style="max-width:820px">
@@ -254,7 +262,8 @@ async function adminCourse(id) {
       };
       const exam = () => {
         const ex = c.exam;
-        pane.innerHTML = `<form class="form panel" id="fe" style="margin-bottom:20px"><h3>إعدادات الاختبار</h3>
+        pane.innerHTML = `<p class="xwarn">${ic('info', 16)} <span>الاختبار الذاتي يُصحَّح في متصفح الطالب، فإجاباته الصحيحة موجودة في بيانات الدورة ويستطيع طالب متمرّس رؤيتها — <b>للتدريب والمراجعة فقط</b>. ${+c.offExams ? 'لهذه المادة امتحانات رسمية، فهو لا يُصدر شهادة.' : ''} للامتحانات الرسمية استعمل تبويب <a href="#" data-goto="offx" style="color:var(--teal)">«الامتحانات الرسمية»</a>.</span></p>
+          <form class="form panel" id="fe" style="margin-bottom:20px"><h3>إعدادات الاختبار</h3>
           <div class="row"><label>درجة النجاح %<input name="passScore" type="number" min="1" max="100" value="${ex.passScore}"></label><label>المدة بالدقائق <span class="hint">0 = مفتوحة</span><input name="duration" type="number" min="0" value="${ex.duration}"></label></div>
           <div class="row"><label>عدد المحاولات <span class="hint">0 = غير محدود</span><input name="maxAttempts" type="number" min="0" value="${ex.maxAttempts}"></label><div style="display:grid;gap:8px;align-content:end">
           <label class="check"><input type="checkbox" name="shuffle" ${ex.shuffle ? 'checked' : ''}> ترتيب عشوائي للأسئلة</label>
@@ -273,6 +282,7 @@ async function adminCourse(id) {
         $('#rvl').onchange = e => { $('#acw').hidden = e.target.value !== 'hidden'; };
         $('#addQ').onclick = () => { const q = { type: 'mcq', options: ['', '', '', ''], answer: 0 }; modal('سؤال جديد', qForm(q), { wide: true, submitText: 'إضافة السؤال', onOpen: f => wireQ(f, q), onSubmit: async fd => { ex.questions.push({ id: genId(), ...qData(fd) }); await save(); counts(); exam(); toast('أُضيف السؤال', 'ok'); } }); };
         pane.onclick = async e => {
+          const gt = e.target.closest('[data-goto]'); if (gt) { e.preventDefault(); $(`.tab[data-t="${gt.dataset.goto}"]`).click(); return; }
           const b = e.target.closest('button'); if (!b) return;
           if (b.dataset.qe) { const q = ex.questions[+b.dataset.qe]; modal('تعديل السؤال', qForm(q), { wide: true, onOpen: f => wireQ(f, q), onSubmit: async fd => { Object.assign(q, qData(fd)); await save(); exam(); toast('حُفظ السؤال', 'ok'); } }); }
           if (b.dataset.qr) { if (await confirmBox('حذف هذا السؤال؟', 'حذف')) { ex.questions.splice(+b.dataset.qr, 1); await save(); counts(); exam(); } }
@@ -326,6 +336,7 @@ async function adminStudents() {
           if (!(await confirmBox(`حذف الطالب «${esc(u.name)}» مع تسجيلاته ونتائجه؟ تبقى شهاداته الصادرة قابلة للتحقق.${S.live ? '<br><small class="muted">ملاحظة: احذف حسابه أيضاً من Firebase ← Authentication.</small>' : ''}`, 'حذف'))) return;
           for (const en of d.enrollments.filter(x => x.uid === u.id)) await DB.del('enrollments', en.id);
           for (const at of d.attempts.filter(x => x.uid === u.id)) await DB.del('attempts', at.id);
+          for (const col of ['sittings', 'sitPapers', 'grades', 'examAccess']) for (const x of await safeList(col, { uid: u.id })) await DB.del(col, x.id);
           for (const [c, l] of [['applications', d.applications], ['records', d.records], ['regs', await safeList('regs', { uid: u.id })]]) for (const x of l.filter(x => x.uid === u.id)) await DB.del(c, x.id);
           for (const p of ADM_PROGS) await DB.del('appFiles', `${u.id}_${p}`).catch(() => {});
           await DB.del('users', u.id); d.users = d.users.filter(x => x.id !== u.id); d.enrollments = d.enrollments.filter(x => x.uid !== u.id); draw(); toast('حُذف الطالب');
@@ -353,13 +364,39 @@ async function adminStudents() {
   };
 }
 
-async function adminResults() {
+const RES_TABS = [['', 'الامتحانات الرسمية', 'shield'], ['practice', 'الاختبارات الذاتية', 'pen']];
+const resTabs = tab => `<div class="tabs">${RES_TABS.map(([k, t, i]) => `<a class="tab ${tab === k ? 'on' : ''}" href="#/results${k ? '/' + k : ''}">${ic(i, 15)} ${t}</a>`).join('')}</div>`;
+/* نظرة عامة على كل الامتحانات الرسمية: الموعد، الحالة، التسليمات، ما ينتظر التصحيح، إعلان النتائج */
+async function adminOffResults() {
+  const [exams, sits, grades, courses] = await Promise.all([DB.list('exams'), DB.list('sittings'), DB.list('grades'), DB.list('courses')]);
+  const cm = Object.fromEntries(courses.map(c => [c.id, c])), gk = new Set(grades.map(g => g.id));
+  const st = exams.map(e => { const ss = sits.filter(x => x.examId === e.id), gs = grades.filter(g => g.examId === e.id);
+    return { e, ph: examPhase(e), n: e.kind === 'oral' ? gs.length : ss.length, todo: e.kind === 'oral' ? 0 : ss.filter(x => gradable(e, x) && !gk.has(x.id)).length + gs.filter(g => g.pending > 0).length, rev: gs.filter(g => (g.review || []).length).length }; })
+    .sort((a, b) => (b.todo - a.todo) || ({ open: 0, soon: 1, closed: 2 }[a.ph] - { open: 0, soon: 1, closed: 2 }[b.ph]) || examSort(a.e, b.e));
+  return {
+    active: 'results', title: 'الامتحانات والنتائج',
+    html: `${resTabs('')}<div class="toolbar"><select id="fk" style="max-width:200px"><option value="">كل الأنواع</option>${Object.keys(EXAM_KINDS).map(k => `<option value="${k}">${examKindName(k)}</option>`).join('')}</select><select id="fp" style="max-width:200px"><option value="">كل المواعيد</option>${Object.entries(EXAM_PH).map(([k, [t]]) => `<option value="${k}">${t}</option>`).join('')}<option value="todo">بانتظار التصحيح</option></select><select id="fc" style="max-width:300px"><option value="">كل المواد</option>${[...new Set(exams.map(e => e.courseId))].map(id => `<option value="${id}">${esc(cm[id]?.title || '—')}</option>`).join('')}</select></div><div id="tbl"></div>`,
+    mount() {
+      const draw = () => {
+        const k = $('#fk').value, p = $('#fp').value, c = $('#fc').value;
+        const l = st.filter(x => (!k || x.e.kind === k) && (!c || x.e.courseId === c) && (!p || (p === 'todo' ? x.todo || x.rev : x.ph === p)));
+        $('#tbl').innerHTML = l.length ? `<div class="tbl-wrap"><table><thead><tr><th>الامتحان</th><th>المادة</th><th>الموعد</th><th>الحالة</th><th>تقدّم</th><th>بانتظار التصحيح</th><th>النتائج</th><th></th></tr></thead><tbody>${l.map(x => `<tr><td><a href="#/exam/${x.e.id}"><strong>${esc(x.e.title)}</strong></a><br>${kindPill(x.e.kind)} ${x.e.published ? '' : '<span class="pill mut">مسودة</span>'}</td><td>${esc(cm[x.e.courseId]?.title || x.e.courseTitle || '—')}</td><td><small>${x.e.kind === 'oral' ? (+x.e.opensAt ? dateRange(x.e.opensAt, x.e.closesAt) : '—') : examWhen(x.e)}</small></td><td>${x.e.kind === 'oral' ? '<span class="pill mut">شفهي</span>' : stPill(EXAM_PH, x.ph)}</td>
+          <td>${x.n}</td><td>${x.todo ? `<span class="pill warn">${x.todo}</span>` : x.rev ? `<span class="pill warn" title="إجابات قصيرة للمراجعة">${x.rev} مراجعة</span>` : '—'}</td><td><span class="pill ${x.e.resultsOut ? 'ok' : 'mut'}">${x.e.resultsOut ? 'معلنة' : 'غير معلنة'}</span></td>
+          <td><div class="acts"><a class="btn btn-ghost btn-sm" href="#/exam/${x.e.id}/grading">${x.e.kind === 'oral' ? 'التقييم' : 'التصحيح'}</a><a class="icon-btn sm" href="#/gradebook/${x.e.courseId}" title="سجل درجات المادة">${ic('chart', 16)}</a></div></td></tr>`).join('')}</tbody></table></div>`
+          : `<div class="empty">${ic('shield', 36)}<p>${exams.length ? 'لا امتحانات مطابقة.' : 'لا امتحانات رسمية بعد. أنشئها من محرر كل مادة ← تبويب «الامتحانات الرسمية».'}</p></div>`;
+      };
+      ['#fk', '#fp', '#fc'].forEach(x => $(x).onchange = draw); draw();
+    }
+  };
+}
+async function adminResults(tab = '') {
+  if (tab !== 'practice') return adminOffResults();
   const [att, courses, certs] = await Promise.all([DB.list('attempts'), DB.list('courses'), DB.list('certificates')]);
   const cm = Object.fromEntries(courses.map(c => [c.id, c])), certOf = a => certs.find(x => x.uid === a.uid && x.courseId === a.courseId);
   att.sort((a, b) => b.at - a.at);
   return {
-    active: 'results', title: 'نتائج الاختبارات', actions: `<button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>`,
-    html: `<div class="toolbar"><select id="fc" style="max-width:320px"><option value="">كل الدورات</option>${courses.map(c => `<option value="${c.id}">${esc(c.title)}</option>`).join('')}</select><select id="fr" style="max-width:180px"><option value="">كل النتائج</option><option value="1">الناجحون</option><option value="0">غير الناجحين</option></select></div><div id="tbl"></div>`,
+    active: 'results', title: 'الامتحانات والنتائج', actions: `<button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>`,
+    html: `${resTabs('practice')}<p class="hint" style="margin-bottom:12px">محاولات تبويب «اختبار ذاتي» في الدورات — تُصحَّح في متصفح الطالب، وتصلح للتدريب والدورات العامة لا للامتحانات الرسمية.</p><div class="toolbar"><select id="fc" style="max-width:320px"><option value="">كل الدورات</option>${courses.map(c => `<option value="${c.id}">${esc(c.title)}</option>`).join('')}</select><select id="fr" style="max-width:180px"><option value="">كل النتائج</option><option value="1">الناجحون</option><option value="0">غير الناجحين</option></select></div><div id="tbl"></div>`,
     mount() {
       const list = () => att.filter(a => (!$('#fc').value || a.courseId === $('#fc').value) && ($('#fr').value === '' || String(+a.passed) === $('#fr').value));
       const draw = () => {
@@ -384,6 +421,341 @@ async function adminResults() {
         }
         const b = e.target.closest('[data-del]'); if (!b) return; if (await confirmBox('حذف هذه المحاولة؟ يُعاد للطالب حق محاولة إضافية.', 'حذف')) { await DB.del('attempts', b.dataset.del); att.splice(att.findIndex(a => a.id === b.dataset.del), 1); draw(); toast('حُذفت المحاولة'); } };
       draw();
+    }
+  };
+}
+
+/* ================= الامتحانات الرسمية (الإدارة) =================
+   محرر الامتحان: الإعدادات · بنك الأسئلة (بالإجابات في examKeys) · التسليمات والتصحيح · المسموح لهم (الإكمالي)
+   والتقييم الشفهي للإجازات، وسجل درجات المادة مع إصدار الشهادات للناجحين. */
+const stripId = o => { const { id, ...r } = o; return r; };
+/* عدد الامتحانات المنشورة في المادة — يجعل الاختبار الذاتي تدريبياً ويمنع الطالب من إصدار شهادته بنفسه (القواعد) */
+async function syncOffCount(cid) {
+  const n = (await DB.list('exams', { courseId: cid })).filter(x => x.published).length;
+  await DB.update('courses', cid, { offExams: n }); return n;
+}
+async function deleteExamCascade(eid) {
+  for (const col of ['sittings', 'sitPapers', 'grades', 'examAccess']) for (const x of await safeList(col, { examId: eid })) await DB.del(col, x.id);
+  for (const col of ['examPapers', 'examKeys', 'exams']) await DB.del(col, eid).catch(() => {});
+}
+const dtField = (name, label, v, hint = '') => `<label>${label}${hint ? ` <span class="hint">${hint}</span>` : ''}<input type="datetime-local" name="${name}" value="${toDTInput(v)}"></label>`;
+const answerText = (q, a) => a == null || String(a).trim() === '' ? '<span class="muted">لم يُجب</span>' : Q_AUTO(q.type) ? esc(q.options?.[+a] ?? '—') : `<div class="ans-txt">${esc(a)}</div>`;
+const keyText = (q, k) => !k ? '<span class="muted">—</span>' : Q_AUTO(q.type) ? esc(q.options?.[+k.a] ?? '—') : q.type === 'short' ? (k.acc || []).map(esc).join(' ، ') || '<span class="muted">لم تُحدَّد</span>' : k.model ? `<div class="ans-txt">${esc(k.model)}</div>` : '<span class="muted">لا يوجد نموذج إجابة</span>';
+const sitState = (e, s) => s.status === 'submitted' ? ['سلّم', 'ok'] : sitDeadline(e, s) + EXAM_GRACE < Date.now() ? ['انتهى وقته — يُصحَّح المحفوظ', 'warn'] : ['يحلّ الآن', 'mut'];
+const gradable = (e, s) => s.status === 'submitted' || sitDeadline(e, s) + EXAM_GRACE < Date.now();
+/* حفظ درجة طالب في امتحان مكتوب */
+async function writeGrade(e, s, bank, keys, prev = {}, extra = {}) {
+  const g = gradeSitting(s, bank, keys, { ...prev, ...extra });
+  const v = { uid: s.uid, userName: s.userName, examId: e.id, courseId: e.courseId, kind: e.kind, points: g.points, total: g.total, score: g.score, pending: g.pending, review: g.review,
+    passed: !g.pending && g.score >= (+e.passScore || 60), rows: g.rows, manual: g.manual, notes: g.notes, feedback: extra.feedback ?? prev.feedback ?? '', gradedAt: Date.now(), by: 'admin' };
+  await DB.set('grades', `${e.id}_${s.uid}`, v); return { id: `${e.id}_${s.uid}`, ...v };
+}
+
+/* ===== تبويب «الامتحانات الرسمية» داخل محرر الدورة ===== */
+async function offExamsPane(c, pane, onCount) {
+  pane.innerHTML = loaderA();
+  const [exams, terms] = await Promise.all([DB.list('exams', { courseId: c.id }), safeList('terms')]);
+  exams.sort(examSort);
+  const wSum = exams.filter(e => e.kind !== 'makeup').reduce((a, e) => a + (+e.weight || 0), 0);
+  const tw = c.program === 'academy' ? openTerms(terms).map(t => examWindow(t, c.id)).find(Boolean) : null;
+  onCount(exams.length);
+  pane.innerHTML = `<div class="xinfo panel">${ic('shield', 22)}<div class="grow"><b>امتحانات محمية</b><p class="muted">الأسئلة لا تصل للطالب إلا في موعد الامتحان، والإجابات الصحيحة لا تصل إليه أبداً (يقرؤها المشرف فقط). وقت البدء والتسليم من السيرفر، ومحاولة واحدة لكل طالب. التصحيح من «التسليمات والتصحيح» في صفحة كل امتحان.</p></div></div>
+    <form class="form panel" id="fgp" style="margin:16px 0"><div class="row"><label>درجة نجاح المادة % <span class="hint">على المجموع الموزون للامتحانات</span><input name="gradePass" type="number" min="1" max="100" value="${+c.gradePass || 60}"></label>
+      <div style="align-self:end;display:flex;gap:8px;flex-wrap:wrap"><button class="btn btn-primary btn-sm">حفظ</button><a class="btn btn-ghost btn-sm" href="#/gradebook/${c.id}">${ic('chart', 16)} سجل درجات المادة</a></div></div>
+      ${exams.length ? `<p class="hint">مجموع الأوزان (مذاكرات + نهائي + شفهي): <b style="color:${wSum === 100 ? 'var(--ok)' : 'var(--warn)'}">${wSum}%</b>${wSum !== 100 ? ' — يُعاد توزيعها نسبياً، والأوضح أن يكون المجموع 100.' : ''} الإكمالي يحلّ محل النهائي بوزنه.</p>` : ''}</form>
+    <div class="toolbar"><h3 class="grow" style="margin:0">امتحانات المادة (${exams.length})</h3>${Object.keys(EXAM_KINDS).map(k => `<button class="btn ${k === 'final' ? 'btn-primary' : 'btn-ghost'} btn-sm" data-newx="${k}">${ic('plus', 15)} ${examKindName(k)}</button>`).join('')}</div>
+    ${exams.length ? `<div class="rowlist">${exams.map(e => `<a class="ritem" href="#/exam/${e.id}">${ic(EXAM_KINDS[e.kind]?.[1] || 'quiz', 20)}<div class="grow"><strong>${esc(e.title || examKindName(e.kind))}</strong> ${kindPill(e.kind)}<br><small>${e.kind === 'oral' ? (+e.opensAt ? dateRange(e.opensAt, e.closesAt) : 'بلا موعد محدد') : `${examWhen(e)} — ${e.nq || 0} سؤالاً${+e.duration ? ` — ${e.duration} د` : ''}`}${e.kind !== 'makeup' ? ` — الوزن ${+e.weight || 0}%` : ''}</small></div>
+      <span class="pill ${e.published ? 'ok' : 'mut'}">${e.published ? 'منشور' : 'مسودة'}</span>${e.resultsOut ? '<span class="pill ok">النتائج معلنة</span>' : ''}${ic('prev', 16)}</a>`).join('')}</div>`
+      : `<div class="empty">${ic('award', 34)}<p>لا امتحانات رسمية بعد. ابدأ بـ«${examKindName('final')}»، وأضف مذاكرات خلال الفصل${c.program === 'ijaza' ? '، أو «تقييم شفهي» يسجّله الشيخ' : ''}.</p></div>`}`;
+  $('#fgp').onsubmit = async ev => { ev.preventDefault(); c.gradePass = Math.min(100, Math.max(1, +new FormData(ev.target).get('gradePass') || 60)); await DB.update('courses', c.id, { gradePass: c.gradePass }); toast('حُفظت درجة نجاح المادة', 'ok'); };
+  $$('[data-newx]', pane).forEach(b => b.onclick = () => {
+    const kind = b.dataset.newx, fin = exams.find(x => x.kind === 'final'), d = DEFAULT_OFFEXAM(kind);
+    if (kind === 'final' && tw) { d.opensAt = tw.from; d.closesAt = tw.to; }
+    modal(`${examKindName(kind)} جديد`, `<label>العنوان<input name="title" required maxlength="80" value="${esc(kind === 'quiz' ? `مذاكرة ${exams.filter(x => x.kind === 'quiz').length + 1}` : d.title)}"></label>
+      ${kind === 'oral' ? `<p class="hint">التقييم الشفهي بلا أسئلة إلكترونية: يسمع الشيخ من الطالب ويسجّل التقدير من صفحة الامتحان.</p>` : ''}
+      <div class="row">${dtField('opensAt', kind === 'oral' ? 'بداية فترة التقييم' : 'يُفتح في', d.opensAt, 'اختياري')}${dtField('closesAt', kind === 'oral' ? 'نهاية فترة التقييم' : 'يُغلق في', d.closesAt, 'اختياري')}</div>
+      ${kind === 'final' && tw ? `<p class="hint">${ic('calendar', 14)} عُبّئ الموعد من التقويم الأكاديمي (${dateRange(tw.from, tw.to)}) — عدّله بالساعة الدقيقة.</p>` : ''}
+      ${kind === 'makeup' && fin ? `<label class="check"><input type="checkbox" name="copy" checked> انسخ بنك أسئلة «${esc(fin.title)}» إلى الإكمالي</label>` : ''}`, {
+      submitText: 'إنشاء ومتابعة', onSubmit: async fd => {
+        const id = genId(), o = fromDTInput(fd.get('opensAt')), cl = fromDTInput(fd.get('closesAt'));
+        if (o && cl && cl <= o) throw new Error('وقت الإغلاق قبل وقت الفتح');
+        const v = { ...d, title: fd.get('title').trim(), opensAt: o, closesAt: cl, courseId: c.id, courseTitle: c.title, program: c.program || '', makeupOf: kind === 'makeup' ? fin?.id || '' : '', createdAt: Date.now(), updatedAt: Date.now() };
+        let qs = [], ks = {};
+        if (kind === 'makeup' && fin && fd.get('copy')) { const [p, k] = await Promise.all([safeGet('examPapers', fin.id), safeGet('examKeys', fin.id)]); qs = p?.questions || []; ks = k?.answers || {}; Object.assign(v, { drawOn: fin.drawOn, draw: { ...(fin.draw || {}) }, shuffle: fin.shuffle, shuffleOpts: fin.shuffleOpts, duration: fin.duration, passScore: fin.passScore }); }
+        v.nq = paperCount(v, qs); v.counts = typeCounts(qs);
+        await DB.set('exams', id, v);
+        if (kind !== 'oral') { await DB.set('examPapers', id, { courseId: c.id, questions: qs, updatedAt: Date.now() }); await DB.set('examKeys', id, { answers: ks, updatedAt: Date.now() }); }
+        go(`/exam/${id}`);
+      }
+    });
+  });
+}
+const loaderA = () => `<div class="loading" style="min-height:220px"><svg class="loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">${I.star}</svg></div>`;
+
+/* ===== صفحة الامتحان ===== */
+async function adminExam(id, tab = '') {
+  const e0 = await DB.get('exams', id);
+  if (!e0) return { active: 'results', title: 'غير موجود', html: '<div class="empty">الامتحان غير موجود أو حُذف.</div>' };
+  const ex = { ...DEFAULT_OFFEXAM(e0.kind), ...e0, draw: { ...DEFAULT_OFFEXAM(e0.kind).draw, ...(e0.draw || {}) } };
+  const oral = ex.kind === 'oral';
+  const [c, paper, key] = await Promise.all([safeGet('courses', ex.courseId), oral ? null : safeGet('examPapers', id), oral ? null : safeGet('examKeys', id)]);
+  const bank = paper?.questions || [], keys = key?.answers || {};
+  const tabs = [['', 'الإعدادات', 'settings'], ...(oral ? [['grading', 'التقييم الشفهي', 'audio']] : [['questions', `بنك الأسئلة <span class="pill mut">${bank.length}</span>`, 'quiz'], ['grading', 'التسليمات والتصحيح', 'check']]), ...(ex.kind === 'makeup' ? [['access', 'المسموح لهم', 'key']] : [])];
+  if (!tabs.some(t => t[0] === (tab || ''))) tab = '';
+  const saveExam = async () => { ex.nq = paperCount(ex, bank); ex.counts = typeCounts(bank); ex.updatedAt = Date.now(); await DB.set('exams', id, stripId(ex)); };
+  const savePaper = async () => { await DB.set('examPapers', id, { courseId: ex.courseId, questions: bank, updatedAt: Date.now() }); await DB.set('examKeys', id, { answers: keys, updatedAt: Date.now() }); await saveExam(); };
+  return {
+    active: 'results', title: esc(ex.title || examKindName(ex.kind)),
+    actions: `<a class="btn btn-ghost btn-sm" href="#/course/${ex.courseId}?t=offx">${ic('prev', 16)} ${esc(trim(c?.title || ex.courseTitle || 'المادة', 30))}</a>`,
+    html: `<div class="xhead">${kindPill(ex.kind)} <span class="pill ${ex.published ? 'ok' : 'mut'}">${ex.published ? 'منشور' : 'مسودة'}</span> ${oral ? '' : stPill(EXAM_PH, examPhase(ex))} ${ex.resultsOut ? '<span class="pill ok">النتائج معلنة للطلاب</span>' : ''}<small class="muted">${oral ? (+ex.opensAt ? dateRange(ex.opensAt, ex.closesAt) : '') : examWhen(ex)}</small></div>
+      <div class="tabs" role="tablist">${tabs.map(([k, t, i]) => `<a class="tab ${tab === k ? 'on' : ''}" href="#/exam/${id}${k ? '/' + k : ''}">${ic(i, 15)} ${t}</a>`).join('')}</div><div id="pane"></div>`,
+    async mount() {
+      const pane = $('#pane');
+      const pub = async (on) => { ex.resultsOut = on; await saveExam(); toast(on ? 'أُعلنت النتائج للطلاب' : 'أُخفيت النتائج عن الطلاب', 'ok'); route(); };
+
+      /* ---------- الإعدادات ---------- */
+      if (tab === '') {
+        const finals = oral ? [] : (await DB.list('exams', { courseId: ex.courseId })).filter(x => x.kind === 'final');
+        const sits = oral ? [] : await safeList('sittings', { examId: id });
+        pane.innerHTML = `<form class="form panel" id="fx" style="max-width:860px">
+          <div class="row"><label>العنوان<input name="title" required maxlength="80" value="${esc(ex.title)}"></label><label>النوع<input value="${esc(examKindName(ex.kind))}" disabled></label></div>
+          <label>تعليمات للطلاب <span class="hint">تظهر قبل البدء، مثل: يُسمح بالمصحف في سؤال التفسير، أو اكتب الإجابات بخط واضح</span><textarea name="note" rows="3" maxlength="1000">${esc(ex.note)}</textarea></label>
+          <fieldset class="fset"><legend>${ic('calendar', 17)} ${oral ? 'فترة التقييم' : 'الموعد'}</legend>
+            <div class="row">${dtField('opensAt', oral ? 'من' : 'يُفتح في', ex.opensAt, 'فارغ = من الآن')}${dtField('closesAt', oral ? 'إلى' : 'يُغلق في', ex.closesAt, 'فارغ = بلا نهاية')}</div>
+            ${oral ? `<label>اسم الشيخ المقيِّم <span class="hint">يظهر للطالب، ويمكن تغييره لكل طالب عند التسجيل</span><input name="examiner" maxlength="80" value="${esc(ex.examiner)}"></label>`
+            : `<div class="row"><label>مدة الحل بالدقائق <span class="hint">تبدأ من ضغط الطالب «ابدأ»، ولا تتجاوز وقت الإغلاق. 0 = حتى الإغلاق</span><input name="duration" type="number" min="0" max="600" step="1" value="${+ex.duration || 0}"></label><div></div></div>
+            <p class="hint">${ic('shield', 14)} يبدأ الامتحان على السيرفر (Cloud Functions): يتحقق من الموعد والصلاحية، ويسحب أسئلة كل طالب ويعطيه ورقته فقط — بنك الأسئلة والإجابات لا يصلان للطالب أبداً. الوقت من خادم Firebase، والقواعد ترفض أي تسليم بعد انتهاء المدة بأكثر من 90 ثانية، والسيرفر يسلّم أوراق من انتهى وقته ويصحّحها كل 10 دقائق.</p>`}
+          </fieldset>
+          <fieldset class="fset"><legend>${ic('award', 17)} الدرجات</legend>
+            <div class="row"><label>درجة النجاح %<input name="passScore" type="number" min="1" max="100" value="${+ex.passScore || 60}"></label>
+            ${ex.kind === 'makeup' ? `<label>بدلاً من<select name="makeupOf"><option value="">—</option>${finals.map(f => `<option value="${f.id}" ${ex.makeupOf === f.id ? 'selected' : ''}>${esc(f.title)}</option>`).join('')}</select></label>` : `<label>الوزن من درجة المادة %<input name="weight" type="number" min="0" max="100" value="${+ex.weight || 0}"></label>`}</div>
+            ${ex.kind === 'makeup' ? `<p class="hint">درجة الإكمالي تحلّ محل درجة النهائي في مجموع المادة إن كانت أعلى منها.</p><label class="check"><input type="checkbox" name="capPass" ${ex.capPass ? 'checked' : ''}> تُحتسب درجة الإكمالي بحدّ أقصى درجة النجاح (مثلاً من نجح بـ90 تُرصد له 60)</label>` : ''}
+          </fieldset>
+          ${oral ? '' : `<fieldset class="fset"><legend>${ic('quiz', 17)} ورقة الامتحان</legend>
+            <label class="check"><input type="checkbox" name="shuffle" ${ex.shuffle ? 'checked' : ''}> ترتيب عشوائي للأسئلة لكل طالب</label>
+            <label class="check"><input type="checkbox" name="shuffleOpts" ${ex.shuffleOpts ? 'checked' : ''}> ترتيب عشوائي لخيارات أسئلة الاختيار من متعدد</label>
+            <label class="check"><input type="checkbox" name="drawOn" id="dOn" ${ex.drawOn ? 'checked' : ''}> سحب عشوائي من بنك الأسئلة — لكل طالب ورقة مختلفة بنفس التركيب</label>
+            <div class="row draw" id="dRow">${Object.entries(Q_TYPES).map(([t, n]) => `<label>${n} <span class="hint">من ${bank.filter(q => q.type === t).length} في البنك</span><input name="d_${t}" type="number" min="0" max="${bank.filter(q => q.type === t).length}" value="${+ex.draw[t] || 0}"></label>`).join('')}</div>
+            <p class="hint" id="nqL"></p></fieldset>`}
+          <label class="check"><input type="checkbox" name="published" ${ex.published ? 'checked' : ''}> منشور — ${oral ? 'يظهر للطلاب في صفحة المادة' : 'يظهر للطلاب ويدخلونه في موعده'}</label>
+          <div class="toolbar" style="margin:0"><button class="btn btn-primary">حفظ</button><span class="grow"></span><button type="button" class="btn btn-danger btn-sm" id="delX">${ic('trash', 15)} حذف الامتحان</button></div></form>`;
+        const f = $('#fx');
+        const nqL = () => { if (oral) return; const fd = new FormData(f), t = { drawOn: !!fd.get('drawOn'), draw: Object.fromEntries(Object.keys(Q_TYPES).map(k => [k, +fd.get('d_' + k) || 0])) }; $('#dRow').hidden = !t.drawOn; const n = paperCount(t, bank); $('#nqL').innerHTML = `${ic('info', 14)} ورقة كل طالب: <b>${n}</b> سؤالاً من بنك فيه ${bank.length}.${!bank.length ? ` <a href="#/exam/${id}/questions" style="color:var(--teal)">أضف الأسئلة</a>` : ''}`; };
+        if (!oral) { f.oninput = nqL; nqL(); }
+        f.onsubmit = async ev => {
+          ev.preventDefault(); if (!f.checkValidity()) { f.reportValidity(); return; }
+          const fd = new FormData(f), o = fromDTInput(fd.get('opensAt')), cl = fromDTInput(fd.get('closesAt'));
+          if (o && cl && cl <= o) { toast('وقت الإغلاق قبل وقت الفتح', 'err'); return; }
+          const v = { title: fd.get('title').trim(), note: fd.get('note').trim(), opensAt: o, closesAt: cl, passScore: Math.min(100, Math.max(1, +fd.get('passScore') || 60)), published: !!fd.get('published') };
+          if (oral) v.examiner = fd.get('examiner').trim();
+          else Object.assign(v, { duration: Math.max(0, Math.round(+fd.get('duration') || 0)), shuffle: !!fd.get('shuffle'), shuffleOpts: !!fd.get('shuffleOpts'), drawOn: !!fd.get('drawOn'), draw: Object.fromEntries(Object.keys(Q_TYPES).map(k => [k, Math.max(0, Math.round(+fd.get('d_' + k) || 0))])) });
+          if (ex.kind === 'makeup') Object.assign(v, { makeupOf: fd.get('makeupOf') || '', capPass: !!fd.get('capPass') }); else v.weight = Math.min(100, Math.max(0, +fd.get('weight') || 0));
+          if (v.published && !oral && !paperCount({ ...ex, ...v }, bank)) { toast('لا يمكن نشر امتحان بلا أسئلة — أضف أسئلة إلى البنك أولاً', 'err'); return; }
+          if (!oral && sits.length && (v.drawOn !== ex.drawOn || JSON.stringify(v.draw) !== JSON.stringify(ex.draw)) && !(await confirmBox(`بدأ ${sits.length} طالب هذا الامتحان. تغيير تركيب الورقة يطبَّق على من يبدأ بعد الآن فقط. متابعة؟`, 'حفظ'))) return;
+          Object.assign(ex, v);
+          try { await saveExam(); await syncOffCount(ex.courseId); $('.admin-top h1').textContent = ex.title; toast(v.published && !oral && v.duration && cl && o && cl - o < v.duration * 6e4 ? 'حُفظ — تنبيه: نافذة الامتحان أقصر من مدته' : 'حُفظ الامتحان', 'ok'); route(); } catch (err) { toast(err.message, 'err'); }
+        };
+        $('#delX').onclick = async () => {
+          if (!(await confirmBox(`حذف «${esc(ex.title)}» نهائياً مع أسئلته وتسليمات الطلاب ودرجاتهم؟`, 'حذف'))) return;
+          try { await deleteExamCascade(id); await syncOffCount(ex.courseId); toast('حُذف الامتحان'); go(`/course/${ex.courseId}?t=offx`); } catch (err) { toast(err.message, 'err'); }
+        };
+        return;
+      }
+
+      /* ---------- بنك الأسئلة ---------- */
+      if (tab === 'questions') {
+        const sits = await safeList('sittings', { examId: id }), others = (await DB.list('exams', { courseId: ex.courseId })).filter(x => x.id !== id && x.kind !== 'oral');
+        const legacy = c?.exam?.questions || [];
+        const qForm = (q, k) => `<label>نص السؤال<textarea name="text" rows="3" required maxlength="3000">${esc(q.text)}</textarea></label>
+          <div class="row"><label>النوع<select name="type" id="qt">${Object.entries(Q_TYPES).map(([t, n]) => `<option value="${t}" ${q.type === t ? 'selected' : ''}>${n}</option>`).join('')}</select></label><label>الدرجة<input name="pts" type="number" min="0.5" max="100" step="0.5" required value="${+q.pts || 1}"></label></div>
+          <div id="qx"></div>`;
+        const wireQ = (form, q, k) => {
+          const draw = () => {
+            const t = $('#qt', form).value, box = $('#qx', form);
+            if (t === 'mcq' || t === 'tf') {
+              const opts = t === 'tf' ? ['صح', 'خطأ'] : [...(q.type === 'mcq' ? q.options : []), '', '', '', '', '', ''].slice(0, 6);
+              box.innerHTML = `<p class="hint" style="margin-bottom:4px">اختر الإجابة الصحيحة بالدائرة${t === 'mcq' ? ' — من خيارين إلى ستة' : ''}</p>` + opts.map((o, i) => `<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px"><input type="radio" name="answer" value="${i}" ${q.type === t && +k?.a === i ? 'checked' : ''} required style="width:20px;height:20px;accent-color:var(--teal)" aria-label="الإجابة الصحيحة"><b style="width:22px">${OPT_LETTERS[i]}</b>${t === 'tf' ? `<strong>${o}</strong><input type="hidden" name="opt" value="${o}">` : `<input name="opt" value="${esc(o)}" placeholder="الخيار ${i + 1}${i > 1 ? ' (اختياري)' : ''}" ${i < 2 ? 'required' : ''}>`}</div>`).join('');
+            } else if (t === 'short') box.innerHTML = `<label>الإجابات المقبولة <span class="hint">سطر لكل صيغة مقبولة. تُطابَق تلقائياً مع تجاهل التشكيل والهمزات والتاء المربوطة و«ال»، وما لا يطابق يُعرض عليك لتصحّحه يدوياً.</span><textarea name="acc" rows="4" dir="auto">${esc((k?.acc || []).join('\n'))}</textarea></label>`;
+            else box.innerHTML = `<label>نموذج الإجابة أو معايير التصحيح <span class="hint">يراه المصحّح فقط بجانب إجابة الطالب — لا يصل للطالب</span><textarea name="model" rows="6">${esc(k?.model || '')}</textarea></label>`;
+          };
+          $('#qt', form).onchange = draw; draw();
+        };
+        const qData = (fd, qid) => {
+          const type = fd.get('type'), q = { id: qid, type, text: fd.get('text').trim(), pts: Math.max(0.5, +fd.get('pts') || 1) }; let k = {};
+          if (Q_AUTO(type)) {
+            const raw = fd.getAll('opt').map(x => x.trim()), ans = +fd.get('answer'), keep = raw.map((o, i) => ({ o, i })).filter(x => x.o);
+            if (!keep.some(x => x.i === ans)) throw new Error('الخيار المحدد كإجابة صحيحة فارغ');
+            q.options = keep.map(x => x.o); k = { a: keep.findIndex(x => x.i === ans) };
+          } else if (type === 'short') { k = { acc: fd.get('acc').split('\n').map(x => x.trim()).filter(Boolean) }; if (!k.acc.length) throw new Error('أضف إجابة مقبولة واحدة على الأقل، أو اجعل السؤال مقالياً'); }
+          else k = { model: fd.get('model').trim() };
+          return { q, k };
+        };
+        const draw = () => {
+          const cnt = typeCounts(bank), tot = bank.reduce((a, q) => a + (+q.pts || 1), 0);
+          pane.innerHTML = `${sits.length ? `<p class="xwarn">${ic('info', 16)} بدأ ${sits.length} طالب هذا الامتحان. تعديل نص سؤال أو إجابته يؤثّر على تصحيح من حلّه؛ وحذف سؤال يُسقطه من أوراقهم.</p>` : ''}
+            <div class="toolbar"><div class="grow"><h3 style="margin:0">بنك الأسئلة (${bank.length})</h3><small class="muted">${Object.entries(cnt).filter(([, n]) => n).map(([t, n]) => `${Q_TYPES[t]}: ${n}`).join(' — ') || 'فارغ'}${bank.length ? ` — مجموع الدرجات ${tot}` : ''}</small></div>
+              ${legacy.length ? `<button class="btn btn-ghost btn-sm" id="impL" title="أسئلة تبويب «اختبار ذاتي» في الدورة">${ic('download', 15)} من الاختبار الذاتي (${legacy.length})</button>` : ''}${others.length ? `<button class="btn btn-ghost btn-sm" id="impO">${ic('copy', 15)} من امتحان آخر</button>` : ''}
+              <button class="btn btn-primary btn-sm" id="addQ">${ic('plus', 16)} سؤال</button></div>
+            ${bank.length ? `<div class="rowlist">${bank.map((q, i) => `<div class="ritem"><span class="tick">${i + 1}</span><div class="grow"><strong>${esc(trim(q.text, 160))}</strong><br><small>${Q_TYPES[q.type]} — ${+q.pts || 1} درجة — ${Q_AUTO(q.type) ? `الصحيحة: ${esc(q.options?.[keys[q.id]?.a] ?? '⚠ غير محددة')}` : q.type === 'short' ? `مقبولة: ${esc(trim((keys[q.id]?.acc || []).join('، '), 60) || '⚠ لا يوجد')}` : keys[q.id]?.model ? 'له نموذج إجابة' : 'بلا نموذج إجابة'}</small></div>
+              <div class="acts"><button class="icon-btn sm" data-up="${i}" ${i === 0 ? 'disabled' : ''} title="أعلى">${ic('up', 16)}</button><button class="icon-btn sm" data-dn="${i}" ${i === bank.length - 1 ? 'disabled' : ''} title="أسفل">${ic('down', 16)}</button><button class="icon-btn sm" data-qe="${i}" title="تعديل">${ic('edit', 16)}</button><button class="icon-btn sm" data-qc="${i}" title="نسخ">${ic('copy', 16)}</button><button class="icon-btn sm danger" data-qr="${i}" title="حذف">${ic('trash', 16)}</button></div></div>`).join('')}</div>`
+              : `<div class="empty">${ic('quiz', 34)}<p>أضف أسئلة: اختيار من متعدد، صح أو خطأ، إجابة قصيرة، أو مقالي. يمكن أن يكون البنك أكبر من الورقة، ويُسحب منه عشوائياً لكل طالب (من الإعدادات).</p></div>`}`;
+          const addQ = (q, k, title) => modal(title, qForm(q, k), { wide: true, submitText: 'إضافة', onOpen: fm => wireQ(fm, q, k), onSubmit: async fd => { const r = qData(fd, genId()); bank.push(r.q); keys[r.q.id] = r.k; await savePaper(); draw(); toast('أُضيف السؤال', 'ok'); } });
+          $('#addQ').onclick = () => { const last = bank[bank.length - 1]; addQ({ type: last?.type || 'mcq', pts: last?.pts || 1, options: [] }, null, 'سؤال جديد'); };
+          $('#impL') && ($('#impL').onclick = async () => {
+            if (!(await confirmBox(`تُنسخ ${legacy.length} سؤالاً من الاختبار الذاتي إلى بنك هذا الامتحان مع إجاباتها (تُحفظ الإجابات هنا في مكان محمي). يبقى الاختبار الذاتي كما هو للتدريب.`, 'نسخ'))) return;
+            for (const q of legacy) { const nid = genId() + Math.random().toString(36).slice(2, 4); bank.push({ id: nid, type: q.type, text: q.text, options: [...q.options], pts: 1 }); keys[nid] = { a: q.answer }; }
+            await savePaper(); draw(); toast('نُسخت الأسئلة', 'ok');
+          });
+          $('#impO') && ($('#impO').onclick = () => modal('نسخ أسئلة من امتحان آخر', `<label>الامتحان<select name="src">${others.map(o => `<option value="${o.id}">${esc(o.title)} (${examKindName(o.kind)})</option>`).join('')}</select></label><p class="hint">تُضاف أسئلته إلى هذا البنك بنسخ مستقلة، مع إجاباتها.</p>`, { submitText: 'نسخ', onSubmit: async fd => {
+            const [p, k] = await Promise.all([safeGet('examPapers', fd.get('src')), safeGet('examKeys', fd.get('src'))]); const src = p?.questions || [];
+            if (!src.length) throw new Error('ذلك الامتحان بلا أسئلة');
+            for (const q of src) { const nid = genId() + Math.random().toString(36).slice(2, 4); bank.push({ ...q, id: nid, options: q.options ? [...q.options] : undefined }); keys[nid] = { ...(k?.answers?.[q.id] || {}) }; }
+            bank.forEach(q => q.options === undefined && delete q.options);
+            await savePaper(); draw(); toast(`نُسخ ${src.length} سؤالاً`, 'ok');
+          } }));
+          pane.onclick = async ev => {
+            const b = ev.target.closest('button'); if (!b || b.disabled) return; const d = b.dataset;
+            if (d.up || d.dn) { const i = +(d.up ?? d.dn), j = d.up ? i - 1 : i + 1; [bank[i], bank[j]] = [bank[j], bank[i]]; await savePaper(); draw(); }
+            if (d.qe) { const q = bank[+d.qe]; modal('تعديل السؤال', qForm(q, keys[q.id]), { wide: true, onOpen: fm => wireQ(fm, q, keys[q.id]), onSubmit: async fd => { const r = qData(fd, q.id); Object.keys(q).forEach(x => delete q[x]); Object.assign(q, r.q); keys[q.id] = r.k; await savePaper(); draw(); toast('حُفظ السؤال', 'ok'); } }); }
+            if (d.qc) { const q = bank[+d.qc]; addQ({ ...q, options: q.options ? [...q.options] : [] }, keys[q.id], 'نسخة من السؤال'); }
+            if (d.qr && await confirmBox('حذف هذا السؤال من البنك؟', 'حذف')) { const q = bank.splice(+d.qr, 1)[0]; delete keys[q.id]; await savePaper(); draw(); }
+          };
+        };
+        draw(); return;
+      }
+
+      /* ---------- المسموح لهم (الإكمالي) ---------- */
+      if (tab === 'access') {
+        const [enr, acc, exams, grades, users] = await Promise.all([DB.list('enrollments', { courseId: ex.courseId }), DB.list('examAccess', { examId: id }), DB.list('exams', { courseId: ex.courseId }), DB.list('grades', { courseId: ex.courseId }), safeList('records')]);
+        const gm = Object.fromEntries(grades.map(g => [g.id, g])), base = exams.filter(x => x.kind !== 'makeup'), pass = +c?.gradePass || 60;
+        const rows = enr.map(en => { const t = courseTotal(base, e => gm[`${e.id}_${en.uid}`], pass); return { uid: en.uid, name: en.userName, t, fail: !t || !t.passed, no: (users.find(r => r.uid === en.uid) || {}).studentNo || '' }; }).sort((a, b) => b.fail - a.fail || (a.name || '').localeCompare(b.name || '', 'ar'));
+        const has = new Set(acc.map(a => a.uid));
+        pane.innerHTML = `<div class="panel"><div class="toolbar"><div class="grow"><h3 style="margin:0">من يحق له الإكمالي (${has.size})</h3><small class="muted">لا يرى الطالب أسئلة الإكمالي ولا يدخله إلا إذا حُدّد هنا. الراسب = مجموعه في المادة دون ${pass}% أو تنقصه درجة امتحان.</small></div>
+          <button class="btn btn-ghost btn-sm" id="selF">${ic('check', 15)} تحديد الراسبين (${rows.filter(r => r.fail).length})</button><button class="btn btn-primary btn-sm" id="svA">حفظ</button></div>
+          ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th></th><th>الطالب</th><th>الرقم الجامعي</th><th>مجموع المادة قبل الإكمالي</th><th>الحالة</th></tr></thead><tbody>${rows.map(r => `<tr><td><input type="checkbox" class="acc" value="${r.uid}" ${has.has(r.uid) ? 'checked' : ''} style="width:18px;height:18px;accent-color:var(--teal)"></td><td>${esc(r.name)}</td><td dir="ltr">${esc(r.no) || '—'}</td><td>${r.t ? `${r.t.total}%${r.t.missing ? ' <small class="muted">(درجات ناقصة)</small>' : ''}` : '—'}</td><td><span class="pill ${r.fail ? 'no' : 'ok'}">${r.fail ? 'راسب' : 'ناجح'}</span></td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">لا يوجد طلاب مسجّلون في المادة.</p>'}</div>`;
+        $('#selF').onclick = () => $$('.acc').forEach(x => { x.checked = rows.find(r => r.uid === x.value)?.fail || false; });
+        $('#svA').onclick = async ev => {
+          const want = new Set($$('.acc').filter(x => x.checked).map(x => x.value)); ev.target.disabled = true;
+          try {
+            for (const r of rows) { const k = `${id}_${r.uid}`; if (want.has(r.uid) && !has.has(r.uid)) await DB.set('examAccess', k, { uid: r.uid, examId: id, courseId: ex.courseId, name: r.name || '', at: Date.now() }); if (!want.has(r.uid) && has.has(r.uid)) await DB.del('examAccess', k); }
+            toast(`حُفظت القائمة — ${want.size} طالب`, 'ok'); route();
+          } catch (err) { toast(err.message, 'err'); ev.target.disabled = false; }
+        };
+        return;
+      }
+
+      /* ---------- التقييم الشفهي ---------- */
+      if (oral) {
+        const [enr, grades, recs] = await Promise.all([DB.list('enrollments', { courseId: ex.courseId }), DB.list('grades', { examId: id }), safeList('records')]);
+        const gm = Object.fromEntries(grades.map(g => [g.uid, g]));
+        const rows = enr.map(en => ({ uid: en.uid, name: en.userName, no: (recs.find(r => r.uid === en.uid) || {}).studentNo || '', g: gm[en.uid] })).sort((a, b) => !!a.g - !!b.g || (a.name || '').localeCompare(b.name || '', 'ar'));
+        pane.innerHTML = `<div class="kpis">${[['users', rows.length, 'طالب في المادة'], ['check', grades.length, 'سُجّل تقييمه'], ['award', grades.filter(g => g.passed).length, 'اجتاز'], ['clock', rows.length - grades.length, 'بانتظار التقييم']].map(([i, n, t]) => `<div class="kpi">${ic(i, 22)}<b>${n}</b><span>${t}</span></div>`).join('')}</div>
+          <div class="toolbar"><h3 class="grow" style="margin:0">سجل التقييم الشفهي</h3><button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>${ex.resultsOut ? `<button class="btn btn-ghost btn-sm" id="unpub">${ic('eye', 16)} إخفاء النتائج</button>` : `<button class="btn btn-brass btn-sm" id="pub">${ic('award', 16)} إعلان النتائج للطلاب</button>`}</div>
+          ${rows.length ? `<div class="tbl-wrap"><table><thead><tr><th>الطالب</th><th>الرقم الجامعي</th><th>التقدير</th><th>الدرجة</th><th>المقدار</th><th>المقيِّم والتاريخ</th><th></th></tr></thead><tbody>${rows.map(r => `<tr><td><strong>${esc(r.name)}</strong></td><td dir="ltr">${esc(r.no) || '—'}</td><td>${r.g ? `<span class="pill ${r.g.passed ? 'ok' : 'no'}">${esc(oralRate(r.g.rate)?.[1] || '—')}</span>` : '<span class="pill mut">لم يُقيَّم</span>'}</td><td>${r.g?.score != null ? r.g.score + '%' : '—'}</td><td>${esc(trim(r.g?.portion || '', 40)) || '—'}</td><td>${r.g ? `${esc(r.g.examiner || '—')}<br><small class="muted">${fmtDate(r.g.heardAt)}</small>` : '—'}</td>
+            <td><div class="acts"><button class="btn btn-${r.g ? 'ghost' : 'primary'} btn-sm" data-or="${r.uid}">${r.g ? 'تعديل' : 'تسجيل التقييم'}</button>${r.g ? `<button class="icon-btn sm danger" data-od="${r.uid}" title="حذف التقييم">${ic('trash', 16)}</button>` : ''}</div></td></tr>`).join('')}</tbody></table></div>` : `<div class="empty">${ic('users', 34)}<p>لا يوجد طلاب مسجّلون في المادة.</p></div>`}`;
+        $('#pub') && ($('#pub').onclick = async () => { if (await confirmBox(`إعلان التقييم لـ${grades.length} طالب؟ ${rows.length - grades.length ? `(${rows.length - grades.length} لم يُقيَّموا بعد)` : ''}`, 'إعلان')) pub(true); });
+        $('#unpub') && ($('#unpub').onclick = () => pub(false));
+        $('#csv').onclick = () => downloadFile(`oral-${id}.csv`, toCSV([['الطالب', 'الرقم الجامعي', 'التقدير', 'الدرجة', 'المقدار', 'المقيِّم', 'التاريخ', 'ملاحظات'], ...rows.map(r => [r.name, r.no, oralRate(r.g?.rate)?.[1] || '', r.g?.score ?? '', r.g?.portion || '', r.g?.examiner || '', r.g ? fmtDate(r.g.heardAt) : '', r.g?.notes || ''])]));
+        pane.onclick = async ev => {
+          const b = ev.target.closest('[data-or],[data-od]'); if (!b) return; const r = rows.find(x => x.uid === (b.dataset.or || b.dataset.od)); if (!r) return;
+          if (b.dataset.od) { if (await confirmBox(`حذف تقييم ${esc(r.name)}؟`, 'حذف')) { await DB.del('grades', `${id}_${r.uid}`); route(); } return; }
+          const g = r.g || {};
+          modal(`التقييم الشفهي — ${esc(r.name)}`, `<div class="row"><label>التقدير<select name="rate" required><option value="">اختر…</option>${ORAL_RATES.map(([k, t, n]) => `<option value="${k}" ${g.rate === k ? 'selected' : ''}>${t}${n ? ` (${n})` : ''}</option>`).join('')}</select></label>
+            <label>الدرجة % <span class="hint">اختياري — فارغ = الدرجة الاسمية للتقدير</span><input name="score" type="number" min="0" max="100" step="0.5" value="${g.score != null && g.scoreSet ? g.score : ''}"></label></div>
+            <label>المقدار المسموع أو المقروء <span class="hint">مثل: من سورة البقرة إلى آخر آل عمران، أو كتاب الإيمان من صحيح البخاري</span><input name="portion" maxlength="200" value="${esc(g.portion)}"></label>
+            <div class="row"><label>الشيخ المقيِّم<input name="examiner" maxlength="80" required value="${esc(g.examiner || ex.examiner)}"></label><label>تاريخ التقييم<input type="date" name="heardAt" required value="${toDateInput(g.heardAt || Date.now())}"></label></div>
+            <label>ملاحظات للطالب <span class="hint">اختياري — تظهر له مع النتيجة</span><textarea name="notes" rows="3" maxlength="1000">${esc(g.notes)}</textarea></label>`, {
+            wide: true, onSubmit: async fd => {
+              const rate = fd.get('rate'), raw = fd.get('score'), set = raw !== '', sc = set ? Math.min(100, Math.max(0, +raw)) : oralRate(rate)[2];
+              const v = { uid: r.uid, userName: r.name || '', examId: id, courseId: ex.courseId, kind: 'oral', rate, score: sc, scoreSet: set, points: null, total: null, pending: 0, passed: rate !== 'fail' && sc >= (+ex.passScore || 60), portion: fd.get('portion').trim(), examiner: fd.get('examiner').trim(), heardAt: fromDateInput(fd.get('heardAt')), notes: fd.get('notes').trim(), gradedAt: Date.now(), by: 'admin' };
+              await DB.set('grades', `${id}_${r.uid}`, v); toast('سُجّل التقييم', 'ok'); route();
+            }
+          });
+        };
+        return;
+      }
+
+      /* ---------- التسليمات والتصحيح ---------- */
+      const [sits, grades, enr, acc] = await Promise.all([DB.list('sittings', { examId: id }), DB.list('grades', { examId: id }), DB.list('enrollments', { courseId: ex.courseId }), ex.kind === 'makeup' ? DB.list('examAccess', { examId: id }) : null]);
+      const gm = Object.fromEntries(grades.map(g => [g.uid, g])), qm = Object.fromEntries(bank.map(q => [q.id, q]));
+      sits.sort((a, b) => (a.userName || '').localeCompare(b.userName || '', 'ar'));
+      const eligible = acc ? acc.map(a => ({ uid: a.uid, name: a.name })) : enr.map(en => ({ uid: en.uid, name: en.userName }));
+      const absent = eligible.filter(x => !sits.some(s => s.uid === x.uid));
+      const ready = sits.filter(s => gradable(ex, s)), ungraded = ready.filter(s => !gm[s.uid]), pend = grades.filter(g => g.pending > 0), rev = grades.filter(g => (g.review || []).length);
+      const kpi = (i, n, t, w) => `<div class="kpi" ${w ? 'style="border-color:var(--warn)"' : ''}>${ic(i, 22)}<b>${n}</b><span>${t}</span></div>`;
+      pane.innerHTML = `<div class="kpis">${kpi('users', eligible.length, ex.kind === 'makeup' ? 'مسموح له الإكمالي' : 'طالب في المادة')}${kpi('play', sits.length, 'بدأ الامتحان')}${kpi('check', ready.length, 'سلّم أو انتهى وقته')}${kpi('quiz', ungraded.length, 'لم يُصحَّح بعد', ungraded.length)}${kpi('pen', pend.length, 'ينتظر تصحيحاً يدوياً', pend.length)}${kpi('x', absent.length, 'لم يتقدّم')}</div>
+        <div class="toolbar"><div class="grow"><h3 style="margin:0">التسليمات</h3><small class="muted">«تصحيح تلقائي» يصحّح أسئلة الاختيار وصح/خطأ والإجابات القصيرة المطابقة، ويُبقي ما صحّحته يدوياً. المقالي والقصير غير المطابق يُصحَّح من زر «تصحيح» لكل طالب.</small></div>
+          <button class="btn btn-primary btn-sm" id="autoG" ${ready.length ? '' : 'disabled'}>${ic('check', 16)} تصحيح تلقائي (${ready.length})</button><button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>
+          ${ex.resultsOut ? `<button class="btn btn-ghost btn-sm" id="unpub">${ic('eye', 16)} إخفاء النتائج</button>` : `<button class="btn btn-brass btn-sm" id="pub" ${grades.length ? '' : 'disabled'}>${ic('award', 16)} إعلان النتائج</button>`}</div>
+        ${sits.length ? `<div class="tbl-wrap"><table><thead><tr><th>الطالب</th><th>الحالة</th><th>البدء والتسليم</th><th>أجاب</th><th>الدرجة</th><th>النتيجة</th><th></th></tr></thead><tbody>${sits.map(s => { const [st, cl] = sitState(ex, s), g = gm[s.uid], na = Object.values(s.answers || {}).filter(v => v != null && String(v).trim() !== '').length;
+          return `<tr><td><strong>${esc(s.userName)}</strong></td><td><span class="pill ${cl}">${st}</span></td><td><small>${fmtDT(tsMs(s.startedAt))}<br>${s.status === 'submitted' ? `سلّم ${fmtTime(tsMs(s.submittedAt))}` : `آخر حفظ ${fmtTime(tsMs(s.savedAt))}`}</small></td><td>${na}/${(s.qids || []).length}</td>
+            <td>${g ? `<strong>${g.score}%</strong><br><small class="muted">${g.points}/${g.total}</small>` : '—'}${g?.pending ? `<br><span class="pill warn">${g.pending} بانتظار التصحيح</span>` : ''}${g && (g.review || []).length ? `<br><span class="pill warn" title="إجابات قصيرة لم تطابق المقبول">${g.review.length} للمراجعة</span>` : ''}</td>
+            <td>${g && !g.pending ? `<span class="pill ${g.passed ? 'ok' : 'no'}">${g.passed ? 'ناجح' : 'لم ينجح'}</span>` : '—'}</td>
+            <td><div class="acts">${gradable(ex, s) ? `<button class="btn btn-${g?.pending || g?.review?.length || !g ? 'primary' : 'ghost'} btn-sm" data-gr="${s.uid}">${ic('pen', 15)} تصحيح</button>` : ''}<button class="icon-btn sm danger" data-rs="${s.uid}" title="إعادة فتح الامتحان لهذا الطالب (يحذف جلسته ودرجته)">${ic('trash', 16)}</button></div></td></tr>`; }).join('')}</tbody></table></div>`
+          : `<div class="empty">${ic('quiz', 34)}<p>${examPhase(ex) === 'soon' ? `لم يُفتح الامتحان بعد — يُفتح ${fmtDT(ex.opensAt)}.` : 'لم يبدأ أي طالب هذا الامتحان بعد.'}</p></div>`}
+        ${absent.length ? `<details class="panel" style="margin-top:16px"><summary><b>لم يتقدّموا (${absent.length})</b> <small class="muted">— تُحتسب درجتهم صفراً في مجموع المادة ما لم يتقدّموا</small></summary><p style="margin-top:10px">${absent.map(a => esc(a.name)).join('، ')}</p></details>` : ''}`;
+      $('#autoG') && ($('#autoG').onclick = async ev => {
+        ev.target.disabled = true; let n = 0;
+        try { for (const s of ready) { await writeGrade(ex, s, bank, keys, gm[s.uid] || {}); n++; } toast(`صُحّحت ${n} ورقة`, 'ok'); route(); } catch (err) { toast(err.message, 'err'); ev.target.disabled = false; }
+      });
+      $('#pub') && ($('#pub').onclick = async () => {
+        const warn = [ungraded.length && `${ungraded.length} ورقة لم تُصحَّح`, pend.length && `${pend.length} ورقة فيها أسئلة مقالية لم تُصحَّح`, rev.length && `${rev.length} ورقة فيها إجابات قصيرة للمراجعة`, examPhase(ex) !== 'closed' && 'الامتحان ما زال مفتوحاً'].filter(Boolean);
+        if (await confirmBox(`إعلان النتائج للطلاب؟ يرى كل طالب درجته ودرجة كل سؤال وملاحظاتك، دون الإجابات الصحيحة.${warn.length ? `<br><br><b style="color:var(--warn)">تنبيه:</b> ${warn.join('، ')}.` : ''}`, 'إعلان')) pub(true);
+      });
+      $('#unpub') && ($('#unpub').onclick = () => pub(false));
+      $('#csv').onclick = () => downloadFile(`exam-${id}.csv`, toCSV([['الطالب', 'الحالة', 'البدء', 'التسليم', 'الدرجات', 'من', 'النسبة', 'النتيجة'], ...sits.map(s => { const g = gm[s.uid]; return [s.userName, sitState(ex, s)[0], fmtDT(tsMs(s.startedAt)), s.status === 'submitted' ? fmtDT(tsMs(s.submittedAt)) : '', g?.points ?? '', g?.total ?? '', g ? g.score + '%' : '', g ? (g.pending ? 'غير مكتمل' : g.passed ? 'ناجح' : 'لم ينجح') : '']; }), ...absent.map(a => [a.name, 'لم يتقدّم', '', '', 0, '', '0%', 'غائب'])]));
+      pane.onclick = async ev => {
+        const rs = ev.target.closest('[data-rs]'), gr = ev.target.closest('[data-gr]');
+        if (rs) { const s = sits.find(x => x.uid === rs.dataset.rs); if (await confirmBox(`إعادة فتح الامتحان لـ${esc(s.userName)}؟ تُحذف جلسته وإجاباته ودرجته، ويستطيع البدء من جديد ما دام الامتحان مفتوحاً (لعذر تقني مثلاً).`, 'إعادة فتح')) { await DB.del('sittings', s.id); await DB.del('sitPapers', s.id).catch(() => {}); await DB.del('grades', `${id}_${s.uid}`).catch(() => {}); toast('أُعيد فتح الامتحان للطالب'); route(); } return; }
+        if (!gr) return;
+        const s = sits.find(x => x.uid === gr.dataset.gr), prev = gm[s.uid] || {}, auto = gradeSitting(s, bank, keys, {}), cur = gradeSitting(s, bank, keys, prev);
+        modal(`تصحيح ورقة ${esc(s.userName)}`, `<div class="gq-list">${(s.qids || []).map((qid, i) => { const q = qm[qid]; if (!q) return `<div class="gq"><b>س${i + 1}</b> <span class="muted">سؤال حُذف من البنك — لا يُحتسب</span></div>`;
+            const a = (s.answers || {})[qid], ar = auto.rows.find(r => r.id === qid), cr = cur.rows.find(r => r.id === qid), needs = ar?.got == null || (auto.review || []).includes(qid);
+            return `<div class="gq ${needs ? 'need' : ''}"><div class="gq-h"><b>س${i + 1}</b><span class="pill mut">${Q_TYPES[q.type]}</span>${needs ? '<span class="pill warn">يحتاج تصحيحك</span>' : `<span class="pill ${ar.got >= ar.max ? 'ok' : 'no'}">تلقائي: ${ar.got}/${ar.max}</span>`}</div>
+              <p class="gq-t">${esc(q.text)}</p><div class="gq-cols"><div><small>إجابة الطالب</small>${answerText(q, a)}</div><div><small>${Q_AUTO(q.type) ? 'الصحيحة' : q.type === 'short' ? 'المقبول' : 'نموذج الإجابة'}</small>${keyText(q, keys[qid])}</div></div>
+              <div class="row"><label>الدرجة من ${ar?.max ?? (+q.pts || 1)}<input type="number" name="m_${qid}" min="0" max="${+q.pts || 1}" step="0.25" value="${cr?.got ?? ''}" ${needs ? 'required' : ''}></label><label>ملاحظة للطالب <span class="hint">اختياري</span><input name="n_${qid}" maxlength="300" value="${esc((prev.notes || {})[qid] || '')}"></label></div></div>`; }).join('')}</div>
+          <label>ملاحظة عامة على الورقة <span class="hint">اختياري — تظهر للطالب مع النتيجة</span><textarea name="feedback" rows="2" maxlength="1000">${esc(prev.feedback || '')}</textarea></label>`, {
+          wide: true, submitText: 'حفظ الدرجة', onSubmit: async fd => {
+            const manual = {}, notes = {};
+            for (const qid of s.qids || []) { const q = qm[qid]; if (!q) continue; const raw = fd.get('m_' + qid), ar = auto.rows.find(r => r.id === qid); const n = (fd.get('n_' + qid) || '').trim(); if (n) notes[qid] = n;
+              if (raw !== '' && raw != null && (ar?.got == null || +raw !== ar.got || (auto.review || []).includes(qid))) manual[qid] = Math.min(+q.pts || 1, Math.max(0, +raw)); }
+            await writeGrade(ex, s, bank, keys, {}, { manual, notes, feedback: fd.get('feedback').trim() }); toast('حُفظت الدرجة', 'ok'); route();
+          }
+        });
+      };
+    }
+  };
+}
+
+/* ===== سجل درجات المادة: كل الامتحانات، المجموع الموزون، وإصدار الشهادات للناجحين ===== */
+async function adminGradebook(cid) {
+  const [c, exams, grades, enr, certs, recs] = await Promise.all([DB.get('courses', cid), DB.list('exams', { courseId: cid }), DB.list('grades', { courseId: cid }), DB.list('enrollments', { courseId: cid }), DB.list('certificates', { courseId: cid }), safeList('records')]);
+  if (!c) return { active: 'results', title: 'غير موجودة', html: '<div class="empty">المادة غير موجودة.</div>' };
+  exams.sort(examSort);
+  const pass = +c.gradePass || 60, gm = Object.fromEntries(grades.map(g => [g.id, g]));
+  const rows = enr.map(en => { const gOf = e => gm[`${e.id}_${en.uid}`]; return { uid: en.uid, name: en.userName, no: (recs.find(r => r.uid === en.uid && r.program === c.program) || {}).studentNo || '', gOf, t: courseTotal(exams, gOf, pass), cert: certs.find(x => x.uid === en.uid) }; })
+    .sort((a, b) => (a.name || '').localeCompare(b.name || '', 'ar'));
+  const cell = (e, g) => !g ? '<span class="muted">—</span>' : e.kind === 'oral' ? `${esc(oralRate(g.rate)?.[1] || '')}<br><small class="muted">${g.score}%</small>` : g.pending ? `<span class="pill warn">ناقص</span>` : `<span style="color:${g.passed ? 'var(--ok)' : 'var(--danger)'}">${g.score}%</span>`;
+  const passed = rows.filter(r => r.t?.passed), toIssue = passed.filter(r => !r.cert);
+  return {
+    active: 'results', title: `سجل الدرجات — ${esc(c.title)}`,
+    actions: `<a class="btn btn-ghost btn-sm" href="#/course/${cid}?t=offx">${ic('prev', 16)} المادة</a><button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>${toIssue.length ? `<button class="btn btn-brass btn-sm" id="iss">${ic('award', 16)} إصدار الشهادات للناجحين (${toIssue.length})</button>` : ''}`,
+    html: !exams.length ? `<div class="empty">${ic('award', 34)}<p>لا امتحانات رسمية في هذه المادة. أضفها من تبويب «الامتحانات الرسمية» في محرر المادة.</p></div>`
+      : `<p class="muted" style="margin-bottom:12px">المجموع = ${exams.filter(e => e.kind !== 'makeup').map(e => `${esc(e.title)} × ${+e.weight || 0}%`).join(' + ')}${exams.some(e => e.kind === 'makeup') ? ' — والإكمالي يحلّ محل النهائي إن كان أعلى' : ''}. النجاح من ${pass}%. ${passed.length} ناجح من ${rows.length}.</p>
+      <div class="tbl-wrap"><table><thead><tr><th>الطالب</th><th>الرقم</th>${exams.map(e => `<th><a href="#/exam/${e.id}/grading" title="${esc(examKindName(e.kind))}">${esc(trim(e.title, 22))}</a><br><small class="muted">${e.kind === 'makeup' ? 'إكمالي' : `${+e.weight || 0}%`}${e.resultsOut ? ' ✓' : ''}</small></th>`).join('')}<th>المجموع</th><th>النتيجة</th><th>الشهادة</th></tr></thead>
+      <tbody>${rows.map(r => `<tr><td><strong>${esc(r.name)}</strong></td><td dir="ltr">${esc(r.no) || '—'}</td>${exams.map(e => `<td>${cell(e, r.gOf(e))}</td>`).join('')}<td><strong>${r.t ? r.t.total + '%' : '—'}</strong>${r.t?.viaMakeup ? '<br><small class="muted">بالإكمالي</small>' : ''}</td>
+        <td>${!r.t ? '—' : r.t.missing ? '<span class="pill warn">غير مكتمل</span>' : `<span class="pill ${r.t.passed ? 'ok' : 'no'}">${r.t.passed ? 'ناجح' : 'راسب'}</span>`}</td><td>${r.cert ? `<a class="icon-btn sm" href="index.html#/cert/${r.cert.id}" target="_blank" title="${esc(r.cert.id)}">${ic('award', 16)}</a>` : '—'}</td></tr>`).join('')}</tbody></table></div>
+      <p class="hint" style="margin-top:10px">✓ = النتائج معلنة للطلاب. «ناقص» = فيه أسئلة مقالية لم تُصحَّح. «غير مكتمل» = تنقصه درجة امتحان أو تصحيح.</p>`,
+    mount() {
+      $('#csv') && ($('#csv').onclick = () => downloadFile(`gradebook-${cid}.csv`, toCSV([['الطالب', 'الرقم الجامعي', ...exams.map(e => e.title), 'المجموع', 'النتيجة'], ...rows.map(r => [r.name, r.no, ...exams.map(e => { const g = r.gOf(e); return !g ? '' : e.kind === 'oral' ? `${oralRate(g.rate)?.[1] || ''} ${g.score}%` : g.pending ? 'ناقص' : g.score; }), r.t?.total ?? '', !r.t ? '' : r.t.missing ? 'غير مكتمل' : r.t.passed ? 'ناجح' : 'راسب'])])));
+      $('#iss') && ($('#iss').onclick = async ev => {
+        if (!(await confirmBox(`إصدار شهادة «${esc(c.title)}» لـ${toIssue.length} طالب ناجح، بدرجة المجموع؟ تظهر في حساب كل طالب ويمكن التحقق منها.`, 'إصدار'))) return;
+        ev.target.disabled = true;
+        try {
+          for (const r of toIssue) { const u = await safeGet('users', r.uid), code = `BYN-${rnd4()}-${rnd4()}`; await DB.set('certificates', code, { uid: r.uid, courseId: cid, name: u?.name || r.name, nameEn: u?.nameEn || '', courseTitle: c.title, courseTitleEn: c.titleEn || '', instructor: c.instructor || '', instructorEn: c.instructorEn || '', certType: c.certType || '', score: Math.round(r.t.total), issuedAt: Date.now() }); }
+          toast(`صدرت ${toIssue.length} شهادة`, 'ok'); route();
+        } catch (err) { toast(err.message, 'err'); ev.target.disabled = false; }
+      });
     }
   };
 }
@@ -1177,7 +1549,10 @@ service cloud.firestore {
     match /settings/{id}     { allow read: if true; allow write: if isAdmin(); }
     match /courses/{id}      { allow read: if true; allow write: if isAdmin(); }
     match /certificates/{id} {
-      allow read: if true; allow create: if isAdmin() || own(request.resource.data); allow delete: if isAdmin();
+      // الطالب يُصدر شهادته بنفسه فقط في الدورات التي ليس لها امتحانات رسمية (offExams)؛ وإلا يُصدرها المشرف بعد اعتماد النتائج
+      allow read: if true; allow delete: if isAdmin();
+      allow create: if isAdmin() || (own(request.resource.data)
+        && get(/databases/$(db)/documents/courses/$(request.resource.data.courseId)).data.get('offExams', 0) == 0);
       allow update: if isAdmin() || (own(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nameEn']));
     }
     // أنواع الشهادات وتصاميمها المرفوعة: يقرؤها الجميع لعرض الشهادة، ويعدّلها المشرف
@@ -1253,6 +1628,40 @@ service cloud.firestore {
         && (request.resource.data.uid == '' || (signedIn() && request.resource.data.uid == request.auth.uid));
       allow read, update, delete: if isAdmin();
     }
+
+    // ===== الامتحانات الرسمية =====
+    // الامتحان يبدأ على السيرفر فقط (Cloud Function startExam بصلاحيات المشرف، لا تمر بهذه القواعد):
+    // تتحقق من التسجيل والموعد وصلاحية الإكمالي، وتسحب أسئلة الطالب، وتنشئ جلسته sittings وورقته الخاصة sitPapers.
+    // exams: بيانات عامة بلا أسئلة. examPapers (بنك الأسئلة) و examKeys (الإجابات): للمشرف فقط — لا يقرؤها أي طالب.
+    // sitPapers: ورقة الطالب (أسئلته فقط بلا إجابات) — يقرؤها صاحبها. sittings: يعدّل الطالب إجاباته ويسلّم قبل انتهاء وقته فقط.
+    // grades: يكتبها المشرف أو السيرفر، ويقرؤها الطالب بعد إعلان النتائج (resultsOut).
+    function examOf(eid) { return get(/databases/$(db)/documents/exams/$(eid)).data; }
+    function inTime(s, e) {
+      return (e.get('duration', 0) == 0 || request.time <= s.startedAt + duration.value(e.duration * 60 + 90, 's'))
+        && (e.get('closesAt', 0) == 0 || request.time.toMillis() <= e.closesAt + 90000);
+    }
+    function sitUpdate(o, d) {
+      return d.diff(o).affectedKeys().hasOnly(['answers','status','submittedAt','savedAt'])
+        && d.answers is map && d.answers.size() <= 300 && d.savedAt == request.time
+        && (d.status == 'started' || (d.status == 'submitted' && d.submittedAt == request.time))
+        && inTime(o, examOf(o.examId));
+    }
+    match /exams/{id}      { allow read: if isAdmin() || resource.data.published == true; allow write: if isAdmin(); }
+    match /examPapers/{id} { allow read, write: if isAdmin(); }
+    match /examKeys/{id}   { allow read, write: if isAdmin(); }
+    match /examAccess/{id} { allow read: if ownRead(); allow write: if isAdmin(); }
+    match /sitPapers/{id}  { allow read: if ownRead(); allow write: if isAdmin(); }
+    match /sittings/{id} {
+      allow read: if ownRead();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (own(resource.data) && resource.data.status == 'started' && sitUpdate(resource.data, request.resource.data));
+    }
+    match /grades/{id} {
+      allow read: if isAdmin() || resource == null || (own(resource.data) && examOf(resource.data.examId).get('resultsOut', false) == true);
+      allow write: if isAdmin();
+    }
+
+    // محاولات «الاختبار الذاتي» (تدريبي، يُصحَّح في المتصفح)
     match /attempts/{id} {
       allow read: if isAdmin() || own(resource.data);
       allow create: if own(request.resource.data);
@@ -1307,6 +1716,7 @@ async function adminSettings() {
           <li>في <b>Firestore</b> أنشئ مجموعة اسمها <code>admins</code>، واجعل معرّف المستند هو الـ UID الذي نسخته، وأضف حقلاً <code>name</code> باسمك.</li>
           <li>ارفع الملف على Netlify (اسحب المجلد إلى app.netlify.com/drop)، ثم أضف دومين Netlify في <b>Authentication ← Settings ← Authorized domains</b>.</li>
           <li>افتح <code>admin.html</code> وادخل بالبريد وكلمة المرور، ومن هنا اضغط «إضافة دورات تجريبية» إن أردت محتوى للبدء.</li>
+          <li><b>الامتحانات الرسمية</b> تحتاج Cloud Functions (خطة Blaze). تُنشر تلقائياً من GitHub (ملف <code>.github/workflows/deploy-firebase.yml</code> مع سرّ <code>FIREBASE_SERVICE_ACCOUNT</code> في المستودع)، أو يدوياً: ثبّت Node.js، ثم في مجلد المشروع: <code>npm i -g firebase-tools</code> ← <code>firebase login</code> ← <code>cd functions &amp;&amp; npm install &amp;&amp; cd ..</code> ← <code>firebase deploy --only functions,firestore:rules</code>. اجعل المنطقة في <code>functions/index.js</code> و<code>js/config.js</code> مطابقة لموقع Firestore. بدونها لا يستطيع الطلاب بدء الامتحانات الرسمية.</li>
         </ol>
         <div class="toolbar" style="margin:16px 0 8px"><strong class="grow">قواعد Firestore</strong><button class="btn btn-ghost btn-sm" id="cpr">${ic('link', 16)} نسخ القواعد</button></div>
         <pre class="code">${esc(RULES)}</pre></div>`,
@@ -1334,7 +1744,7 @@ async function adminSettings() {
       });
       $('#seed').onclick = async e => { e.currentTarget.disabled = true; try { await seedCourses(); toast('أُضيفت 3 دورات تجريبية', 'ok'); } catch (err) { toast(err.message, 'err'); } e.currentTarget.disabled = false; };
       $('#exp').onclick = async () => {
-        const out = {}; for (const c of ['settings', 'courses', 'users', 'enrollments', 'attempts', 'certificates', 'certTypes', 'certAssets', 'courseLive', 'messages', 'applications', 'appFiles', 'records', 'terms', 'regs', 'counters']) out[c] = Object.fromEntries((await safeList(c)).map(({ id, ...r }) => [id, r]));
+        const out = {}; for (const c of ['settings', 'courses', 'users', 'enrollments', 'attempts', 'certificates', 'certTypes', 'certAssets', 'courseLive', 'messages', 'applications', 'appFiles', 'records', 'terms', 'regs', 'counters', 'exams', 'examPapers', 'examKeys', 'examAccess', 'sittings', 'sitPapers', 'grades']) out[c] = Object.fromEntries((await safeList(c)).map(({ id, ...r }) => [id, r]));
         downloadFile(`bayan-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(out, null, 1), 'application/json');
       };
       $('#imp') && ($('#imp').onchange = async e => {
@@ -1381,7 +1791,8 @@ const APP = {
     [/^\/login$/, adminLoginView],
     [/^\/?$/, wrapA(adminDash), 'admin'], [/^\/courses$/, wrapA(adminCourses), 'admin'], [/^\/course\/([^/]+)$/, wrapA(adminCourse), 'admin'],
     [/^\/admissions(?:\/(settings))?$/, wrapA(adminAdmissions), 'admin'], [/^\/registry(?:\/(terms))?$/, wrapA(adminRegistry), 'admin'], [/^\/term\/([^/]+)$/, wrapA(adminTerm), 'admin'],
-    [/^\/students$/, wrapA(adminStudents), 'admin'], [/^\/results$/, wrapA(adminResults), 'admin'],
+    [/^\/students$/, wrapA(adminStudents), 'admin'], [/^\/results(?:\/(practice))?$/, wrapA(adminResults), 'admin'],
+    [/^\/exam\/([^/]+)(?:\/(questions|grading|access))?$/, wrapA(adminExam), 'admin'], [/^\/gradebook\/([^/]+)$/, wrapA(adminGradebook), 'admin'],
     [/^\/certs(?:\/(types|courses|settings))?$/, wrapA(adminCerts), 'admin'], [/^\/certtype\/([^/]+)$/, wrapA(adminCertType), 'admin'], [/^\/messages$/, wrapA(adminMessages), 'admin'], [/^\/settings$/, wrapA(adminSettings), 'admin']
   ],
   guard(g, path) { if (S.user?.isAdmin) return false; if (path !== '/') sessionStorage.setItem('bayan_admin_next', path); go('/login'); return true; },

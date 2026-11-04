@@ -290,6 +290,90 @@ function examWindow(t, courseId) {
   if (+t.examStart) return { from: +t.examStart, to: +t.examEnd || (+t.examStart + 86399000) };
   return null;
 }
+/* ================= الامتحانات الرسمية =================
+   exams/{id}       بيانات الامتحان (عامة): النوع، الموعد، المدة، الوزن، عدد أسئلة الورقة nq، نشر النتائج resultsOut
+   examPapers/{id}  بنك الأسئلة بلا إجابات — يقرؤه الطالب المسجّل في موعد الامتحان فقط (القواعد تقارن بوقت السيرفر)
+   examKeys/{id}    الإجابات الصحيحة ونماذج الإجابة — المشرف فقط
+   sittings/{examId}_{uid}  جلسة الطالب: الأسئلة المسحوبة، إجاباته، وقت البدء والتسليم من السيرفر
+   grades/{examId}_{uid}    الدرجة — يكتبها المشرف (أو Cloud Function)، ويراها الطالب بعد نشر النتائج
+   examAccess/{examId}_{uid} من يحق له الامتحان الإكمالي */
+const EXAM_KINDS = { quiz: ['مذاكرة', 'pen', 'mut'], final: ['امتحان نهائي', 'award', 'ok'], makeup: ['امتحان إكمالي', 'key', 'warn'], oral: ['تقييم شفهي', 'audio', 'ok'] };
+const examKindName = k => (EXAM_KINDS[k] || EXAM_KINDS.quiz)[0];
+const kindPill = k => `<span class="pill ${(EXAM_KINDS[k] || EXAM_KINDS.quiz)[2]}">${examKindName(k)}</span>`;
+const Q_TYPES = { mcq: 'اختيار من متعدد', tf: 'صح أو خطأ', short: 'إجابة قصيرة', essay: 'سؤال مقالي' };
+const Q_AUTO = t => t === 'mcq' || t === 'tf';
+const OPT_LETTERS = ['أ', 'ب', 'ج', 'د', 'هـ', 'و'];
+/* التقييم الشفهي للإجازات: التقدير يسجّله الشيخ، والدرجة اختيارية (وإلا تُحتسب الدرجة الاسمية للتقدير) */
+const ORAL_RATES = [['excellent', 'ممتاز', 95], ['vgood', 'جيد جداً', 85], ['good', 'جيد', 75], ['pass', 'مقبول', 65], ['fail', 'لم يجتز', 0]];
+const oralRate = k => ORAL_RATES.find(r => r[0] === k);
+const EXAM_GRACE = 90e3; /* مهلة الشبكة بعد انتهاء الوقت — يجب أن تطابق 90 ثانية في قواعد Firestore */
+const EXAM_PH = { soon: ['لم يُفتح بعد', 'mut'], open: ['مفتوح الآن', 'ok'], closed: ['انتهى موعده', 'mut'] };
+function examPhase(e, now = Date.now()) {
+  if (+e.opensAt && now < +e.opensAt) return 'soon';
+  if (+e.closesAt && now > +e.closesAt) return 'closed';
+  return 'open';
+}
+const examWhen = e => +e.opensAt ? (+e.closesAt ? `${fmtDT(e.opensAt)} — ${toDateInput(e.opensAt) === toDateInput(e.closesAt) ? fmtTime(e.closesAt) : fmtDT(e.closesAt)}` : `من ${fmtDT(e.opensAt)}`) : +e.closesAt ? `حتى ${fmtDT(e.closesAt)}` : 'مفتوح دون موعد';
+const DEFAULT_OFFEXAM = kind => ({ kind, title: examKindName(kind), note: '', opensAt: 0, closesAt: 0, duration: kind === 'oral' ? 0 : kind === 'quiz' ? 30 : 90, passScore: 60, weight: { quiz: 40, final: 60, makeup: 0, oral: 100 }[kind] ?? 0,
+  shuffle: true, shuffleOpts: true, drawOn: false, draw: { mcq: 0, tf: 0, short: 0, essay: 0 }, nq: 0, counts: {}, examiner: '', capPass: false, makeupOf: '', published: false, resultsOut: false });
+/* وقت السيرفر: Firestore يضع request.time والقواعد تتحقق منه؛ في الوضع التجريبي وقت الجهاز */
+const NOW_TS = () => S.live ? firebase.firestore.FieldValue.serverTimestamp() : Date.now();
+const tsMs = v => v == null ? 0 : typeof v === 'number' ? v : typeof v.toMillis === 'function' ? v.toMillis() : +v || 0;
+const shuffleArr = (a, rnd = Math.random) => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+/* مولّد ثابت من نص (لترتيب الخيارات نفسه عند استئناف الجلسة) */
+const seeded = s => { let h = 2166136261; for (const ch of String(s)) h = Math.imul(h ^ ch.charCodeAt(0), 16777619); return () => ((h = Math.imul(h ^ (h >>> 15), 2246822507) ^ Math.imul(h ^ (h >>> 13), 3266489909)) >>> 0) / 4294967296; };
+const typeCounts = qs => Object.fromEntries(Object.keys(Q_TYPES).map(t => [t, qs.filter(q => q.type === t).length]));
+/* عدد أسئلة الورقة: السحب العشوائي بعدد لكل نوع، وإلا كل البنك */
+const paperCount = (e, qs) => e.drawOn ? Object.keys(Q_TYPES).reduce((n, t) => n + Math.min(Math.max(0, +(e.draw || {})[t] || 0), qs.filter(q => q.type === t).length), 0) : qs.length;
+function drawPaper(e, qs) {
+  let out = e.drawOn ? Object.keys(Q_TYPES).flatMap(t => shuffleArr(qs.filter(q => q.type === t)).slice(0, Math.max(0, +(e.draw || {})[t] || 0))) : [...qs];
+  if (e.shuffle) out = shuffleArr(out); else { const ids = new Set(out.map(q => q.id)); out = qs.filter(q => ids.has(q.id)); }
+  return out;
+}
+/* تطبيع العربية لمقارنة الإجابات القصيرة: حذف التشكيل والتطويل وتوحيد الهمزات والتاء المربوطة والألف المقصورة */
+const normAr = s => String(s ?? '').replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/ؤ/g, 'و').replace(/ئ/g, 'ي').replace(/^ال(?=\S{3,})/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').trim().toLowerCase();
+/* تصحيح سؤال واحد: { pts: الدرجة أو null إن احتاج تصحيحاً يدوياً, review: يُعرض على المصحّح } */
+function autoMark(q, k, a) {
+  const max = +q.pts || 1;
+  if (q.type === 'essay') return { pts: a == null || String(a).trim() === '' ? 0 : null, review: a != null && String(a).trim() !== '' };
+  if (a == null || a === '') return { pts: 0 };
+  if (Q_AUTO(q.type)) return { pts: k && +a === +k.a ? max : 0 };
+  const ok = (k?.acc || []).some(x => normAr(x) && normAr(x) === normAr(a));
+  return { pts: ok ? max : 0, review: !ok };
+}
+/* تصحيح جلسة كاملة مع الإبقاء على درجات المصحّح اليدوية (manual) وملاحظاته (notes) */
+function gradeSitting(s, qs, keys, prev = {}) {
+  const qm = Object.fromEntries(qs.map(q => [q.id, q])), manual = { ...(prev.manual || {}) }, notes = { ...(prev.notes || {}) }, rows = [], review = [];
+  let points = 0, total = 0, pending = 0;
+  for (const id of s.qids || []) {
+    const q = qm[id]; if (!q) continue;
+    const max = +q.pts || 1, m = autoMark(q, (keys || {})[id], (s.answers || {})[id]);
+    const v = manual[id] != null ? Math.min(max, Math.max(0, +manual[id])) : m.pts;
+    total += max; if (v == null) pending++; else points += v;
+    if (m.review && manual[id] == null) review.push(id);
+    rows.push({ id, type: q.type, max, got: v, note: notes[id] || '' });
+  }
+  const score = total ? Math.round(points / total * 1000) / 10 : 0;
+  return { points, total, score, pending, review, rows, manual, notes };
+}
+/* آخر لحظة يُقبل فيها التسليم: بدء الطالب + المدة، ولا تتجاوز إغلاق الامتحان */
+const sitDeadline = (e, s) => { const st = tsMs(s.startedAt); let d = Infinity; if (+e.duration) d = st + e.duration * 6e4; if (+e.closesAt) d = Math.min(d, +e.closesAt); return d; };
+const examSort = (a, b) => (+a.opensAt || 9e15) - (+b.opensAt || 9e15) || ['quiz', 'final', 'makeup', 'oral'].indexOf(a.kind) - ['quiz', 'final', 'makeup', 'oral'].indexOf(b.kind);
+/* النتيجة النهائية للمادة: مجموع موزون للمذاكرات والنهائي (أو الإكمالي بدلاً منه) والشفهي */
+function courseTotal(exams, gradeOf, pass = 60) {
+  const fin = exams.find(e => e.kind === 'final'), mk = exams.find(e => e.kind === 'makeup');
+  const val = e => { const g = gradeOf(e); return g && !g.pending ? +g.score || 0 : null; };
+  let main = fin ? val(fin) : null, viaMakeup = false;
+  if (mk) { const g = gradeOf(mk); if (g && !g.pending) { let v = +g.score || 0; if (mk.capPass) v = Math.min(v, +mk.passScore || pass); if (main == null || v > main) { main = v; viaMakeup = true; } } }
+  const parts = exams.filter(e => e.kind === 'quiz' || e.kind === 'oral').map(e => [e, val(e)]);
+  if (fin) parts.push([fin, main]);
+  const wSum = parts.reduce((a, [e]) => a + (+e.weight || 0), 0);
+  if (!parts.length) return null;
+  const missing = parts.some(([, v]) => v == null);
+  const total = wSum ? parts.reduce((a, [e, v]) => a + (+e.weight || 0) * (v || 0), 0) / wSum : (main ?? parts[0][1] ?? 0);
+  const t = Math.round(total * 10) / 10;
+  return { total: t, passed: !missing && t >= pass, missing, viaMakeup };
+}
 /* الرقم الجامعي: سنتان من السنة + 1 أكاديمي / 2 إجازات + تسلسل من 4 أرقام، مثل 2610007 (للمشرف فقط) */
 async function nextStudentNo(p) {
   const yy = String(new Date().getFullYear()).slice(2), k = `${yy}_${p}`;
@@ -641,11 +725,17 @@ addEventListener('hashchange', () => { $('#links')?.classList.remove('open'); $(
 addEventListener('scroll', onScroll, { passive: true });
 
 function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('تعذّر تحميل ' + src)); document.head.append(s); }); }
+const FB_BASE = 'https://www.gstatic.com/firebasejs/10.12.2/';
+/* Cloud Functions تُحمَّل عند الحاجة فقط (بدء امتحان رسمي) */
+async function fbFunctions() {
+  if (!firebase.functions) await loadScript(FB_BASE + 'firebase-functions-compat.js');
+  return firebase.app().functions(typeof FUNCTIONS_REGION === 'string' && FUNCTIONS_REGION ? FUNCTIONS_REGION : 'us-central1');
+}
 async function boot() {
   applyTheme();
   try {
     if (FIREBASE_CONFIG) {
-      const v = '10.12.2', base = `https://www.gstatic.com/firebasejs/${v}/`;
+      const base = FB_BASE;
       await loadScript(base + 'firebase-app-compat.js');
       await Promise.all([loadScript(base + 'firebase-auth-compat.js'), loadScript(base + 'firebase-firestore-compat.js')]);
       firebase.initializeApp(FIREBASE_CONFIG); fdb = firebase.firestore(); fauth = firebase.auth();

@@ -22,3 +22,6 @@ const FIREBASE_CONFIG = {
 };
 */
 const EMAIL_DOMAIN = 'bayan-students.app'; // يُضاف لاسم المستخدم داخلياً في Firebase
+// منطقة Cloud Functions (بدء الامتحانات وتصحيحها على السيرفر) — يجب أن تطابق REGION في functions/index.js
+// وأن تطابق موقع قاعدة Firestore: nam5 ← us-central1 · eur3 ← europe-west1 · منطقة مفردة (مثل me-central1) ← نفس الاسم
+const FUNCTIONS_REGION = 'us-central1';
