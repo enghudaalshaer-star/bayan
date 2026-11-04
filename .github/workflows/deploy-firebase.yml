@@ -1,0 +1,47 @@
+# بيان — نشر دوال Firebase وقواعد Firestore تلقائياً عند كل رفع إلى main
+# يعمل فقط حين تتغيّر ملفات الدوال أو القواعد، ويمكن تشغيله يدوياً من تبويب Actions ← Run workflow.
+# يحتاج سرّاً واحداً في المستودع: FIREBASE_SERVICE_ACCOUNT (محتوى ملف JSON لحساب الخدمة).
+# الموقع نفسه لا يُنشر من هنا — Netlify ينشره من GitHub كما كان.
+name: نشر Firebase (الدوال والقواعد)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'functions/**'
+      - 'firestore.rules'
+      - 'firebase.json'
+      - '.firebaserc'
+      - '.github/workflows/deploy-firebase.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: firebase-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: functions/package-lock.json
+
+      - name: تثبيت مكتبات الدوال
+        run: npm ci --prefix functions
+
+      - name: فحص الكود قبل النشر
+        run: node --check functions/index.js && node --check functions/grading.js
+
+      - name: الدخول إلى Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: النشر
+        run: npx --yes firebase-tools@15 deploy --only functions,firestore:rules --project bayan-4e7fb --non-interactive --force
