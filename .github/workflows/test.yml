@@ -1,0 +1,26 @@
+# بيان — اختبارات الواجهة: تمرّ على كل الصفحات وأهم العمليات (الوضع التجريبي ومسار Firebase المحاكى)
+# تعمل عند كل رفع إلى main وعند كل Pull Request. النتيجة في تبويب Actions.
+name: اختبارات الواجهة
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md']
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tests/package-lock.json
+      - name: فحص صياغة الملفات
+        run: for f in js/*.js functions/*.js; do node --check "$f"; done
+      - name: تثبيت
+        run: npm ci --prefix tests
+      - name: الاختبارات
+        run: npm test --prefix tests
