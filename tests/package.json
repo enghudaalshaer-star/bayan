@@ -1,0 +1,9 @@
+{
+  "name": "bayan-tests",
+  "private": true,
+  "scripts": {
+    "test": "node prepare.js && node run.js && node sweep.js && node flows.js && node livesweep.js",
+    "test:live": "node prepare.js && node run.js && CATALOG=1 node livesweep.js"
+  },
+  "devDependencies": { "jsdom": "24.1.3" }
+}
