@@ -6,6 +6,17 @@ service cloud.firestore {
     function own(d) { return signedIn() && d.uid == request.auth.uid; }
     // قراءة مستند الطالب نفسه (resource == null يسمح بالسؤال عن مستند غير موجود)
     function ownRead() { return isAdmin() || resource == null || own(resource.data); }
+    // الحساب الموقوف (users.disabled) لا يكتب شيئاً. الدالة syncUserAuth توقفه في Firebase Auth أيضاً فلا يستطيع الدخول
+    function userPath() { return /databases/$(db)/documents/users/$(request.auth.uid); }
+    function notBlocked() { return signedIn() && (!exists(userPath()) || get(userPath()).data.get('disabled', false) != true); }
+    // المقبول في أي برنامج: اسمه الرسمي يُقفل (تعدّله الإدارة فقط)
+    function admitted() {
+      return exists(/databases/$(db)/documents/records/$(request.auth.uid + '_academy'))
+        || exists(/databases/$(db)/documents/records/$(request.auth.uid + '_ijaza'));
+    }
+    // حد طول النص: الحقل غائب، أو null / رقم / منطقي، أو نص لا يتجاوز n حرفاً
+    function okLen(d, k, n) { return !(k in d) || d[k] == null || d[k] is bool || d[k] is number || (d[k] is string && d[k].size() <= n); }
+    function changed(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasAny(keys); }
     // نافذة زمنية بصيغة الدورة: enrollMode (open | window | closed) و enrollStart و enrollEnd
     function inWindow(w, def) {
       let m = w.get('enrollMode', def);
@@ -17,12 +28,20 @@ service cloud.firestore {
 
     match /settings/{id}     { allow read: if true; allow write: if isAdmin(); }
     match /courses/{id}      { allow read: if true; allow write: if isAdmin(); }
+    // إحصاءات عامة (عدد الشهادات): تحدّثها الدوال، ويقرؤها الجميع بدل قراءة كل الشهادات
+    match /stats/{id}        { allow read: if true; allow write: if isAdmin(); }
+
+    // الشهادات: التحقق برمز الشهادة متاح للجميع (get)، أما سرد الشهادات فلصاحبها وللمشرف فقط.
+    // لا ينشئها المتصفح أبداً: يُصدرها السيرفر (الدالة issueCert بعد التحقق من التسجيل والنجاح) أو المشرف.
+    // صاحبها يضيف اسمه الإنجليزي مرة واحدة إن كان فارغاً.
     match /certificates/{id} {
-      // الطالب يُصدر شهادته بنفسه فقط في الدورات التي ليس لها امتحانات رسمية (offExams)؛ وإلا يُصدرها المشرف بعد اعتماد النتائج
-      allow read: if true; allow delete: if isAdmin();
-      allow create: if isAdmin() || (own(request.resource.data)
-        && get(/databases/$(db)/documents/courses/$(request.resource.data.courseId)).data.get('offExams', 0) == 0);
-      allow update: if isAdmin() || (own(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nameEn']));
+      allow get: if true;
+      allow list: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (own(resource.data) && notBlocked()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nameEn'])
+        && resource.data.get('nameEn', '') == '' && request.resource.data.nameEn is string
+        && request.resource.data.nameEn.size() >= 3 && request.resource.data.nameEn.size() <= 120);
     }
     // أنواع الشهادات وتصاميمها المرفوعة: يقرؤها الجميع لعرض الشهادة، ويعدّلها المشرف
     match /certTypes/{id}    { allow read: if true; allow write: if isAdmin(); }
@@ -33,34 +52,54 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
     match /admins/{uid}      { allow read: if signedIn() && request.auth.uid == uid; allow write: if false; }
+
+    // حساب الطالب: لا يغيّر الإيقاف ولا اسم المستخدم، ولا اسمه بعد قبوله في برنامج
+    function userOk(d) { return okLen(d, 'name', 120) && okLen(d, 'nameEn', 120) && okLen(d, 'username', 60) && okLen(d, 'phone', 40); }
     match /users/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
-      allow create: if isAdmin() || (signedIn() && request.auth.uid == uid && request.resource.data.disabled == false);
-      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['disabled','username']));
+      allow create: if isAdmin() || (signedIn() && request.auth.uid == uid && request.resource.data.disabled == false
+        && request.resource.data.keys().hasOnly(['name','nameEn','username','phone','createdAt','disabled']) && userOk(request.resource.data));
+      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid && notBlocked()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','nameEn','phone'])
+        && userOk(request.resource.data)
+        && (!changed(['name']) || !admitted())
+        && (!changed(['nameEn']) || !admitted() || resource.data.get('nameEn', '') == ''));
       allow delete: if isAdmin();
     }
 
     // ===== القبول والقيد =====
     // طلب الالتحاق {uid}_{program}: الطالب يرسله خلال فترة القبول، ويعدّله أو يسحبه قبل القرار، ويستكمله إذا طُلب منه. القرار للمشرف.
     function appKeys() { return ['uid','program','track','userName','username','name','nameEn','birthDate','gender','nationality','country','city','phone','email','qual','qualSpec','qualYear','qualFrom','arabic','quranAmt','priorIjaza','motivation','heard','pledge','hasFile','status','submittedAt','updatedAt']; }
+    function appOk(d) {
+      return okLen(d, 'name', 120) && okLen(d, 'nameEn', 120) && okLen(d, 'userName', 120) && okLen(d, 'username', 60)
+        && okLen(d, 'nationality', 80) && okLen(d, 'country', 80) && okLen(d, 'city', 80) && okLen(d, 'phone', 40) && okLen(d, 'email', 120)
+        && okLen(d, 'qualSpec', 150) && okLen(d, 'qualFrom', 150) && okLen(d, 'quranAmt', 300) && okLen(d, 'priorIjaza', 300)
+        && okLen(d, 'motivation', 4000) && okLen(d, 'heard', 200) && okLen(d, 'track', 40) && okLen(d, 'qual', 40)
+        && okLen(d, 'arabic', 40) && okLen(d, 'gender', 10) && okLen(d, 'birthDate', 20) && okLen(d, 'qualYear', 10);
+    }
     function admOpen(p) { return inWindow(get(/databases/$(db)/documents/settings/main).data.get('adm', {}).get(p, {}), 'open'); }
     match /applications/{id} {
       allow read: if ownRead();
-      allow create: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.program
+      allow create: if isAdmin() || (own(request.resource.data) && notBlocked() && id == request.auth.uid + '_' + request.resource.data.program
         && request.resource.data.program in ['academy', 'ijaza'] && request.resource.data.status == 'submitted'
-        && request.resource.data.keys().hasOnly(appKeys()) && admOpen(request.resource.data.program));
-      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data)
+        && request.resource.data.keys().hasOnly(appKeys()) && appOk(request.resource.data) && admOpen(request.resource.data.program));
+      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data) && notBlocked()
         && request.resource.data.program == resource.data.program
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(appKeys())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(appKeys()) && appOk(request.resource.data)
         && ((resource.data.status in ['submitted', 'incomplete'] && request.resource.data.status in ['submitted', 'withdrawn'])
           || (resource.data.status == 'withdrawn' && request.resource.data.status == 'submitted' && admOpen(resource.data.program))));
       allow delete: if isAdmin();
     }
-    // صورة المؤهل المرفقة بالطلب (JPEG مضغوطة بصيغة dataURL)
+    // صورة المؤهل: الملف نفسه في Storage (apps/{uid}/{program}.jpg) وهنا مساره فقط.
+    // data = الصيغة القديمة (صورة داخل المستند) — تبقى مقروءة للطلبات السابقة
     match /appFiles/{id} {
       allow read: if ownRead();
-      allow create, update: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.program
-        && request.resource.data.keys().hasOnly(['uid','program','data','name','at']) && request.resource.data.data is string && request.resource.data.data.size() < 1000000);
+      allow create, update: if isAdmin() || (own(request.resource.data) && notBlocked() && id == request.auth.uid + '_' + request.resource.data.program
+        && request.resource.data.program in ['academy', 'ijaza']
+        && request.resource.data.keys().hasOnly(['uid','program','data','path','name','at'])
+        && (!('data' in request.resource.data) || (request.resource.data.data is string && request.resource.data.data.size() < 1000000))
+        && (!('path' in request.resource.data) || request.resource.data.path == 'apps/' + request.auth.uid + '/' + request.resource.data.program + '.jpg')
+        && okLen(request.resource.data, 'name', 120));
       allow delete: if isAdmin();
     }
     // القيد في البرنامج بعد القبول (الرقم الجامعي، المستوى، المسار، الحالة): يكتبه المشرف فقط
@@ -82,19 +121,26 @@ service cloud.firestore {
     }
     match /enrollments/{id} {
       allow read: if isAdmin() || resource == null || own(resource.data);
-      allow create: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.courseId && enrollOpen(request.resource.data.courseId));
-      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data) && request.resource.data.courseId == resource.data.courseId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['termId', 'by']));
+      // التسجيل الذاتي لا يحدد الفصل ولا مصدر التسجيل (termId / by / repeat للإدارة فقط)
+      allow create: if isAdmin() || (own(request.resource.data) && notBlocked() && id == request.auth.uid + '_' + request.resource.data.courseId
+        && request.resource.data.keys().hasOnly(['uid','courseId','userName','courseTitle','completed','enrolledAt','lastLesson','lastAt'])
+        && okLen(request.resource.data, 'userName', 120) && okLen(request.resource.data, 'courseTitle', 200)
+        && enrollOpen(request.resource.data.courseId));
+      // الطالب يحدّث تقدّمه في الدروس فقط
+      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data) && notBlocked()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['completed','lastLesson','lastAt'])
+        && request.resource.data.completed is list && request.resource.data.completed.size() <= 500);
       allow delete: if isAdmin();
     }
-    // رسائل «تواصل معنا»: يرسلها أي زائر، ويقرؤها المشرف فقط
+    // رسائل «تواصل معنا»: يرسلها أي زائر بحدود طول، ويقرؤها المشرف فقط (الحماية من الإغراق: App Check)
     match /messages/{id} {
       allow create: if request.resource.data.keys().hasOnly(['name','reply','topic','body','at','uid','status'])
         && request.resource.data.name is string && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 80
         && request.resource.data.reply is string && request.resource.data.reply.size() >= 5 && request.resource.data.reply.size() <= 120
         && request.resource.data.body is string && request.resource.data.body.size() >= 5 && request.resource.data.body.size() <= 3000
+        && okLen(request.resource.data, 'topic', 80) && request.resource.data.at is number
         && request.resource.data.status == 'new'
-        && (request.resource.data.uid == '' || (signedIn() && request.resource.data.uid == request.auth.uid));
+        && (request.resource.data.uid == '' || (request.resource.data.uid == request.auth.uid && notBlocked()));
       allow read, update, delete: if isAdmin();
     }
 
@@ -122,7 +168,7 @@ service cloud.firestore {
     match /sittings/{id} {
       allow read: if ownRead();
       allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (own(resource.data) && resource.data.status == 'started' && sitUpdate(resource.data, request.resource.data));
+      allow update: if isAdmin() || (own(resource.data) && notBlocked() && resource.data.status == 'started' && sitUpdate(resource.data, request.resource.data));
     }
     match /grades/{id} {
       allow read: if isAdmin() || resource == null || (own(resource.data) && examOf(resource.data.examId).get('resultsOut', false) == true);
@@ -137,10 +183,15 @@ service cloud.firestore {
     // الأسئلة الشائعة: يقرؤها الجميع، ويكتبها المشرف
     match /faqs/{id} { allow read: if true; allow write: if isAdmin(); }
 
-    // محاولات «الاختبار الذاتي» (تدريبي، يُصحَّح في المتصفح)
+    // محاولات «الاختبار الذاتي» (تدريبي): للمسجّل في الدورة فقط وبحقول محددة.
+    // الدرجة هنا للعرض فقط — الشهادة يُصدرها السيرفر بعد إعادة التصحيح من الإجابات
     match /attempts/{id} {
       allow read: if isAdmin() || own(resource.data);
-      allow create: if own(request.resource.data);
+      allow create: if isAdmin() || (own(request.resource.data) && notBlocked()
+        && request.resource.data.keys().hasOnly(['uid','userName','courseId','courseTitle','score','correct','total','passed','at','answers'])
+        && request.resource.data.answers is map && request.resource.data.answers.size() <= 300
+        && okLen(request.resource.data, 'userName', 120) && okLen(request.resource.data, 'courseTitle', 200)
+        && exists(/databases/$(db)/documents/enrollments/$(request.auth.uid + '_' + request.resource.data.courseId)));
       allow update, delete: if isAdmin();
     }
   }

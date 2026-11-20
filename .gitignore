@@ -5,3 +5,4 @@ node_modules/
 # مفتاح حساب الخدمة لا يُرفع أبداً — مكانه أسرار GitHub فقط
 bayan-4e7fb-*.json
 *service-account*.json
+dist/

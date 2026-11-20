@@ -3,7 +3,7 @@
   publish = "."
   command = ""
 
-# لوحة التحكم على رابط خاص (cp-7q4x9k.html) لا يظهر في الموقع: المسارات المعتادة تعطي «غير موجود»
+# لوحة التحكم على رابط خاص لا يظهر في الموقع: المسارات المعتادة تعطي «غير موجود»
 [[redirects]]
   from = "/admin*"
   to = "/404.html"
@@ -14,11 +14,81 @@
   to = "/404.html"
   status = 404
   force = true
+# ملفات المستودع الداخلية لا تُعرض للزوار
+[[redirects]]
+  from = "/functions/*"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/PROJECT.md"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/README.md"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/firestore.rules"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/storage.rules"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/firebase.json"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/.firebaserc"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/tests/*"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/build.sh"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/_headers"
+  to = "/404.html"
+  status = 404
+  force = true
+[[redirects]]
+  from = "/.github/*"
+  to = "/404.html"
+  status = 404
+  force = true
 
-# لا تُفهرس لوحة التحكم في محركات البحث، ولا تُعرض داخل إطار في موقع آخر
+# ترويسات الأمان لكل الصفحات
+# CSP: السكربتات من الموقع نفسه ومن Firebase (gstatic) و cdnjs و reCAPTCHA (App Check) فقط — لا شيفرة مضمّنة ولا eval.
+# الصور والفيديو والإطارات (يوتيوب، درايف، ساوند كلاود…) مسموحة من أي https لأن المشرف يضيف روابط من مصادر كثيرة.
+# إن تعطّل شيء بعد النشر: افتح Console في المتصفح، وللتجربة غيّر اسم الترويسة إلى Content-Security-Policy-Report-Only
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' https://www.gstatic.com https://cdnjs.cloudflare.com https://apis.google.com https://www.google.com https://www.recaptcha.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; media-src 'self' data: blob: https:; frame-src 'self' data: blob: https:; connect-src 'self' data: blob: https://*.googleapis.com https://*.cloudfunctions.net https://*.run.app https://*.firebaseio.com https://www.google.com https://cdnjs.cloudflare.com https://fonts.gstatic.com; worker-src 'self' blob: https://cdnjs.cloudflare.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'; upgrade-insecure-requests"
+    Strict-Transport-Security = "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "SAMEORIGIN"
+    Referrer-Policy = "strict-origin-when-cross-origin"
+    Permissions-Policy = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    Cross-Origin-Opener-Policy = "same-origin-allow-popups"
+
+# لوحة التحكم: لا تُفهرس، ولا تُعرض داخل إطار، ولا تُخزَّن مؤقتاً
 [[headers]]
   for = "/cp-7q4x9k.html"
   [headers.values]
     X-Robots-Tag = "noindex, nofollow"
-    X-Frame-Options = "DENY"
     Cache-Control = "no-store"
