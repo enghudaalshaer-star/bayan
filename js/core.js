@@ -4,6 +4,7 @@
 /* ================= أدوات عامة ================= */
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const isImgData = u => /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(String(u || ''));
 const esc = s => String(s ?? '').replace(/[&<>"']/g, m => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m]));
 const genId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 const LOC = 'ar-u-ca-gregory-nu-latn';
@@ -481,8 +482,12 @@ function transcriptRows(marks) {
 /* الرقم الجامعي: سنتان من السنة + 1 أكاديمي / 2 إجازات + تسلسل من 4 أرقام، مثل 2610007 (للمشرف فقط) */
 async function nextStudentNo(p) {
   const yy = String(new Date().getFullYear()).slice(2), k = `${yy}_${p}`;
-  const cnt = (await safeGet('counters', 'students')) || {}, n = (+cnt[k] || 0) + 1;
-  await DB.update('counters', 'students', { [k]: n });
+  let n;
+  if (S.live) {
+    /* معاملة: مشرفان يقبلان في اللحظة نفسها لا يأخذان الرقم نفسه */
+    const ref = fdb.collection('counters').doc('students');
+    n = await fdb.runTransaction(async tx => { const d = await tx.get(ref), v = (+(d.exists ? d.data()[k] : 0) || 0) + 1; tx.set(ref, { [k]: v }, { merge: true }); return v; });
+  } else { const cnt = (await safeGet('counters', 'students')) || {}; n = (+cnt[k] || 0) + 1; await DB.update('counters', 'students', { [k]: n }); }
   return `${yy}${p === 'academy' ? 1 : 2}${String(n).padStart(4, '0')}`;
 }
 /* ضغط صورة إلى JPEG بحجم يناسب مستند Firestore */
@@ -501,7 +506,11 @@ async function compressImage(file, maxSide = 1600, limit = 900000) {
     throw new Error('الصورة كبيرة جداً — صوّرها بدقة أقل');
   } finally { URL.revokeObjectURL(url); }
 }
-const openDataUrl = async d => { const b = await (await fetch(d)).blob(); const u = URL.createObjectURL(b); window.open(u, '_blank', 'noopener'); setTimeout(() => URL.revokeObjectURL(u), 60000); };
+const openDataUrl = async d => {
+  /* يُفتح كصورة أو PDF أو وسائط فقط — أي نوع آخر (مثل text/html) يُنزَّل ولا يُعرض، حتى لا تُنفَّذ شيفرة داخل الموقع */
+  if (!/^(data:|blob:|https:)/.test(String(d || ''))) return;
+  const raw = await (await fetch(d)).blob(), t = /^(image\/(jpeg|png|gif|webp)|application\/pdf|audio\/|video\/)/.test(raw.type) ? raw.type : 'application/octet-stream';
+  const b = new Blob([raw], { type: t }); const u = URL.createObjectURL(b); window.open(u, '_blank', 'noopener'); setTimeout(() => URL.revokeObjectURL(u), 60000); };
 /* ================= اللقاءات المباشرة (الدورات الأونلاين) =================
    في الدورة (عام للزوّار): online, livePlatform, liveSchedule (نص المواعيد).
    في courseLive/{courseId} (للطلاب المسجّلين والمشرف فقط حسب القواعد):
@@ -742,8 +751,20 @@ const Local = {
   },
   async set(c, id, v) { const d = this.load(); d[c] = d[c] || {}; const { id: _, ...r } = v; d[c][id] = r; this.save(d); return id; },
   async update(c, id, v) { const d = this.load(); d[c] = d[c] || {}; d[c][id] = { ...(d[c][id] || {}), ...v }; this.save(d); },
-  async del(c, id) { const d = this.load(); if (d[c]) delete d[c][id]; this.save(d); }
+  async del(c, id) { const d = this.load(); if (d[c]) delete d[c][id]; this.save(d); },
+  async recent(c, field, n) { return (await this.list(c)).sort((a, b) => (b[field] || 0) - (a[field] || 0)).slice(0, n); },
+  async count(c, f) { return (await this.list(c)).filter(x => matchF(x, f)).length; },
+  async listIn(c, field, vals) { const v = new Set(vals); return (await this.list(c)).filter(x => v.has(x[field])); },
+  async avg(c, field, f) { const l = (await this.list(c)).filter(x => matchF(x, f) && typeof x[field] === 'number'); return l.length ? l.reduce((a, x) => a + x[field], 0) / l.length : 0; }
 };
+/* تنفيذ دالة على عناصر قائمة بتوازٍ محدود (للعدّ لكل مادة/فصل دون إغراق الشبكة) */
+async function pmap(arr, n, fn) { const out = new Array(arr.length); let i = 0; await Promise.all(Array.from({ length: Math.min(n, arr.length) }, async () => { while (i < arr.length) { const k = i++; out[k] = await fn(arr[k], k); } })); return out; }
+/* فلاتر العدّ: {حقل: قيمة} للتساوي، أو [[حقل, عملية, قيمة], …] بالعمليات == != > >= < <= */
+const normF = f => !f ? [] : Array.isArray(f) ? f : Object.entries(f).map(([k, v]) => [k, '==', v]);
+function matchF(x, f) {
+  return normF(f).every(([k, op, v]) => { const a = x[k], eq = JSON.stringify(a) === JSON.stringify(v);
+    return op === '==' ? eq : op === '!=' ? a !== undefined && !eq : op === '>' ? a > v : op === '>=' ? a >= v : op === '<' ? a < v : op === '<=' ? a <= v : false; });
+}
 /* ================= طبقة البيانات: Firebase ================= */
 const Remote = {
   async get(c, id) { const s = await fdb.collection(c).doc(id).get(); return s.exists ? { id: s.id, ...s.data() } : null; },
@@ -751,10 +772,100 @@ const Remote = {
     let q = fdb.collection(c); if (f) for (const [k, v] of Object.entries(f)) q = q.where(k, '==', v);
     const s = await q.get(); return s.docs.map(d => ({ id: d.id, ...d.data() }));
   },
-  async set(c, id, v) { const { id: _, ...r } = v; await fdb.collection(c).doc(id).set(r); return id; },
-  async update(c, id, v) { await fdb.collection(c).doc(id).set(v, { merge: true }); },
-  async del(c, id) { await fdb.collection(c).doc(id).delete(); }
+  async set(c, id, v) { const { id: _, ...r } = pubSafe(c, v); await fdb.collection(c).doc(id).set(r); return id; },
+  async update(c, id, v) { await fdb.collection(c).doc(id).set(pubSafe(c, v), { merge: true }); },
+  async del(c, id) { await fdb.collection(c).doc(id).delete(); },
+  /* أحدث n مستند حسب حقل (للقوائم التي تكبر بلا حد: المحاولات، الرسائل) */
+  async recent(c, field, n) { const s = await fdb.collection(c).orderBy(field, 'desc').limit(n).get(); return s.docs.map(d => ({ id: d.id, ...d.data() })); },
+  /* العدّ والمتوسط على السيرفر (تجميع Firestore): قراءة واحدة لكل 1000 مستند بدل قراءة كل مستند */
+  count(c, f) { return aggQuery(c, f, { count: {} }); },
+  /* مستندات حقلُها ضمن قائمة قيم (where in، 30 قيمة لكل استعلام): يُقرأ المطلوب فقط بدل المجموعة كلها */
+  async listIn(c, field, vals) {
+    const v = [...new Set(vals.filter(x => x != null && x !== ''))], out = [];
+    for (let i = 0; i < v.length; i += 30) { const s = await fdb.collection(c).where(field, 'in', v.slice(i, i + 30)).get(); out.push(...s.docs.map(d => ({ id: d.id, ...d.data() }))); }
+    return out;
+  },
+  avg(c, field, f) { return aggQuery(c, f, { avg: { field: { fieldPath: field } } }); }
 };
+/* حزمة compat لا تدعم count()، فيُستعمل REST مباشرة بتوكن المستخدم — القواعد تُطبَّق كما في أي استعلام */
+const AGG_OPS = { '==': 'EQUAL', '!=': 'NOT_EQUAL', '>': 'GREATER_THAN', '>=': 'GREATER_THAN_OR_EQUAL', '<': 'LESS_THAN', '<=': 'LESS_THAN_OR_EQUAL' };
+function fsValue(v) {
+  if (v === null || v === undefined) return { nullValue: null };
+  if (typeof v === 'boolean') return { booleanValue: v };
+  if (typeof v === 'number') return Number.isInteger(v) ? { integerValue: String(v) } : { doubleValue: v };
+  if (Array.isArray(v)) return { arrayValue: { values: v.map(fsValue) } };
+  return { stringValue: String(v) };
+}
+async function aggQuery(c, f, agg) {
+  const fl = normF(f).map(([k, op, v]) => ({ fieldFilter: { field: { fieldPath: k }, op: AGG_OPS[op], value: fsValue(v) } }));
+  const q = { from: [{ collectionId: c }] };
+  if (fl.length === 1) q.where = fl[0]; else if (fl.length) q.where = { compositeFilter: { op: 'AND', filters: fl } };
+  const h = { 'Content-Type': 'application/json' }, tok = await fauth.currentUser?.getIdToken().catch(() => null);
+  if (tok) h.Authorization = 'Bearer ' + tok;
+  if (S.appCheck) { try { h['X-Firebase-AppCheck'] = (await firebase.appCheck().getToken(false)).token; } catch { } }
+  const r = await fetch(`https://firestore.googleapis.com/v1/projects/${FIREBASE_CONFIG.projectId}/databases/(default)/documents:runAggregationQuery`,
+    { method: 'POST', headers: h, body: JSON.stringify({ structuredAggregationQuery: { structuredQuery: q, aggregations: [{ alias: 'v', ...agg }] } }) });
+  if (!r.ok) throw new Error('تعذّر العدّ: ' + r.status);
+  const v = (await r.json())?.[0]?.result?.aggregateFields?.v || {};
+  return +(v.integerValue ?? v.doubleValue ?? 0) || 0;
+}
+/* ================= التخزين المؤقت للقراءات (Firebase فقط) =================
+   البيانات المرجعية (الدورات، الفصول، الأسئلة الشائعة، أنواع الشهادات، الإحصاءات) تُقرأ مرة كل 5 دقائق في الموقع
+   ودقيقة في الإدارة، بدل كل انتقال بين الصفحات. أي كتابة عبر DB تمسح ذاكرة مجموعتها فوراً.
+   ما يرجع نسخة مستقلة (structuredClone) حتى لا يغيّر تعديل صفحةٍ ما في الذاكرة. */
+const CACHE_LISTS = ['courses', 'terms', 'faqs', 'certTypes'], CACHE_DOCS = [...CACHE_LISTS, 'stats'];
+function cachedDB(base) {
+  const L = {}, D = {}, ttl = () => S.scope === 'admin' ? 60e3 : 300e3;
+  const fresh = e => e && Date.now() - e.t < ttl(), cl = v => v == null ? v : structuredClone(v);
+  const drop = c => { delete L[c]; for (const k of Object.keys(D)) if (k.startsWith(c + '/')) delete D[k]; };
+  const memo = (m, k, fn) => { if (!fresh(m[k])) { const p = fn(); m[k] = { t: Date.now(), p }; p.catch(() => { if (m[k]?.p === p) delete m[k]; }); } return m[k].p; };
+  const w = fn => async (c, ...a) => { drop(c); try { return await fn(c, ...a); } finally { drop(c); } };
+  return { ...base,
+    async list(c, f) { return f || !CACHE_LISTS.includes(c) ? base.list(c, f) : cl(await memo(L, c, () => base.list(c))); },
+    async get(c, id) {
+      if (!CACHE_DOCS.includes(c)) return base.get(c, id);
+      if (fresh(L[c])) { const l = await L[c].p.catch(() => null); if (l) return cl(l.find(x => x.id === id) || null); }
+      return cl(await memo(D, c + '/' + id, () => base.get(c, id)));
+    },
+    set: w(base.set), update: w(base.update), del: w(base.del),
+    drop
+  };
+}
+/* ================= فهرس الدورات (stats/catalog) =================
+   مستند واحد فيه كل الدورات بنسخة خفيفة (بلا نصوص الدروس ولا أسئلة الاختبار) والأسئلة الشائعة.
+   تبنيه الدالة rebuildCatalog عند أي تعديل على الدورات أو الأسئلة، فتقرأ صفحات العرض مستنداً واحداً بدل كل الدورات.
+   نفس liteCourse في functions/index.js */
+function liteCourse(c) {
+  const o = { ...c };
+  if (Array.isArray(o.lessons)) o.lessons = o.lessons.map(({ content, ...l }) => l);
+  if (o.exam && Array.isArray(o.exam.questions)) o.exam = { ...o.exam, questions: o.exam.questions.map(q => ({ id: q.id })) };
+  if (Array.isArray(o.attachments)) o.attachments = o.attachments.map(a => a.path ? { ...a, url: '' } : a);
+  return o;
+}
+async function catalog() {
+  if (S.live) { const d = await safeGet('stats', 'catalog'); if (d && Array.isArray(d.courses)) return d; }
+  const [courses, faqs] = await Promise.all([safeList('courses'), safeList('faqs')]);
+  return { courses, faqs };
+}
+const catalogCourses = async () => (await catalog()).courses || [];
+const catalogFaqs = async () => (await catalog()).faqs || [];
+/* مستند الدورة يقرؤه الجميع، فلا تُحفظ فيه روابط تنزيل ملفات Storage (فيها رمز يفتح الملف لأي أحد):
+   يُحفظ المسار فقط، ويُجلب الرابط وقت العرض للمسجّل عبر resolveAtts (تتحقق منه قواعد Storage) */
+function pubSafe(c, v) {
+  if (c !== 'courses' || !Array.isArray(v?.attachments)) return v;
+  return { ...v, attachments: v.attachments.map(a => a.path ? { ...a, url: '' } : a) };
+}
+async function resolveAtts(list) {
+  if (!S.live) return list;
+  const need = (list || []).filter(a => a.path && !a.url); if (!need.length) return list;
+  try { const st = await fbStorage(); await Promise.all(need.map(a => st.ref(a.path).getDownloadURL().then(u => { a.url = u; }).catch(() => { a.url = ''; a.locked = true; }))); } catch { }
+  return list;
+}
+/* عدد الشهادات الصادرة: من stats/public في Firebase (لا تُقرأ كل الشهادات)، ومن البيانات المحلية في التجريبي */
+async function certCount() {
+  if (!S.live) return (await safeList('certificates')).length;
+  return +((await safeGet('stats', 'public'))?.certs) || 0;
+}
 const safeGet = (c, id) => DB.get(c, id).catch(() => null);
 const safeList = (c, f) => DB.list(c, f).catch(() => []);
 
@@ -994,7 +1105,7 @@ async function route() {
     catch (e) {
       console.error(e); if (token !== S.token) return;
       const perm = /permission|insufficient/i.test(e.message);
-      paint({ html: `<section class="auth"><div class="empty" style="max-width:560px">${ic('x', 36)}<p><strong>تعذّر تحميل الصفحة.</strong></p><p class="muted" style="margin:8px 0 16px">${perm ? 'رفضت قاعدة البيانات الطلب. تأكد من نشر قواعد Firestore ومن وجود حسابك في مجموعة admins.' : esc(e.message)}</p><button class="btn btn-primary" onclick="location.reload()">إعادة المحاولة</button></div></section>` });
+      paint({ html: `<section class="auth"><div class="empty" style="max-width:560px">${ic('x', 36)}<p><strong>تعذّر تحميل الصفحة.</strong></p><p class="muted" style="margin:8px 0 16px">${perm ? 'رفضت قاعدة البيانات الطلب. تأكد من نشر قواعد Firestore ومن وجود حسابك في مجموعة admins.' : esc(e.message)}</p><button class="btn btn-primary" data-act="reload">إعادة المحاولة</button></div></section>` });
     }
     return;
   }
@@ -1010,6 +1121,14 @@ document.addEventListener('click', async e => {
 });
 addEventListener('hashchange', () => { $('#links')?.classList.remove('open'); $('#side')?.classList.remove('open'); route(); });
 addEventListener('scroll', onScroll, { passive: true });
+/* أزرار عامة بلا onclick داخل HTML (سياسة CSP تمنع الشيفرة المضمّنة) */
+document.addEventListener('click', e => {
+  const b = e.target.closest('[data-act]'); if (!b) return;
+  const a = b.dataset.act;
+  if (a === 'reload') location.reload();
+  else if (a === 'print') print();
+  else if (a === 'scroll') setTimeout(() => document.getElementById(b.dataset.to)?.scrollIntoView({ behavior: 'smooth' }), 400);
+});
 
 function loadScript(src) { return new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('تعذّر تحميل ' + src)); document.head.append(s); }); }
 const FB_BASE = 'https://www.gstatic.com/firebasejs/10.12.2/';
@@ -1025,15 +1144,21 @@ async function boot() {
       const base = FB_BASE;
       await loadScript(base + 'firebase-app-compat.js');
       await Promise.all([loadScript(base + 'firebase-auth-compat.js'), loadScript(base + 'firebase-firestore-compat.js')]);
-      firebase.initializeApp(FIREBASE_CONFIG); fdb = firebase.firestore(); fauth = firebase.auth();
-      DB = Remote; Auth = AuthFB;
+      firebase.initializeApp(FIREBASE_CONFIG);
+      /* App Check: يثبت أن الطلبات من موقعك لا من سكربت — يحمي من الإغراق والاستنزاف. يعمل حين تضع APPCHECK_SITE_KEY في config.js */
+      if (typeof APPCHECK_SITE_KEY === 'string' && APPCHECK_SITE_KEY) {
+        try { await loadScript(base + 'firebase-app-check-compat.js'); firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(APPCHECK_SITE_KEY), true); S.appCheck = true; }
+        catch (e) { console.warn('App Check', e); }
+      }
+      fdb = firebase.firestore(); fauth = firebase.auth();
+      DB = cachedDB(Remote); Auth = AuthFB;
     } else { DB = Local; Auth = AuthLocal; await ensureLocalSeed(); }
     await loadSettings();
     try { S.user = await Auth.init(); } catch (e) { S.user = null; toast(e.message, 'err'); }
     route();
   } catch (e) {
     console.error(e);
-    $('#app').innerHTML = `<section class="auth"><div class="empty" style="max-width:560px"><p><strong>تعذّر تشغيل المنصة.</strong></p><p class="muted" style="margin:8px 0 16px">${esc(e.message)}<br>تحقق من اتصال الإنترنت ومن إعدادات Firebase في js/config.js.</p><button class="btn btn-primary" onclick="location.reload()">إعادة المحاولة</button></div></section>`;
+    $('#app').innerHTML = `<section class="auth"><div class="empty" style="max-width:560px"><p><strong>تعذّر تشغيل المنصة.</strong></p><p class="muted" style="margin:8px 0 16px">${esc(e.message)}<br>تحقق من اتصال الإنترنت ومن إعدادات Firebase في js/config.js.</p><button class="btn btn-primary" data-act="reload">إعادة المحاولة</button></div></section>`;
   }
 }
 

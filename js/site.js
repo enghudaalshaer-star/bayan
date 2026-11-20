@@ -44,7 +44,7 @@ function runCountdowns() {
   const tick = () => {
     for (const el of els) {
       let left = Math.max(0, +el.dataset.until - Date.now());
-      if (!left) { clearInterval(iv); setTimeout(route, 400); return; } // انتهى العدّ: أعد رسم الصفحة لتظهر الحالة الجديدة
+      if (!left) { clearInterval(iv); setTimeout(route, 400 + Math.random() * 2500); return; } // انتهى العدّ: أعد رسم الصفحة لتظهر الحالة الجديدة
       for (const [k, , ms] of CD_UNITS) { const v = Math.floor(left / ms); left -= v * ms; const b = $(`[data-u="${k}"]`, el); if (b) b.textContent = String(v).padStart(k === 'd' ? 1 : 2, '0'); }
     }
   };
@@ -165,11 +165,12 @@ function particles(cv) {
 /* ================= الموقع العام ================= */
 async function viewHome() {
   const st = S.settings;
-  const courses = (await safeList('courses')).filter(c => c.published).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-  const certs = await safeList('certificates');
+  /* فهرس واحد (stats/catalog) بدل قراءة كل الدورات مرتين وكل الأسئلة الشائعة */
+  const [cat, nCerts] = await Promise.all([catalog(), certCount()]);
+  const allC = cat.courses || [], acad = planRows(allC), ij = ijazaRows(allC);
+  const courses = allC.filter(c => c.published).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const lessons = courses.reduce((a, c) => a + (c.lessons || []).length, 0);
-  const allC = await safeList('courses'), acad = planRows(allC), ij = ijazaRows(allC);
-  const faqs = (await safeList('faqs')).filter(f => f.published !== false).sort((a, b) => (+a.order || 99) - (+b.order || 99)).slice(0, 4);
+  const faqs = (cat.faqs || []).filter(f => f.published !== false).sort((a, b) => (+a.order || 99) - (+b.order || 99)).slice(0, 4);
   return {
     over: true, docTitle: 'الرئيسية',
     html: `<section class="hero"><canvas id="particles"></canvas><div class="arches" aria-hidden="true"></div>
@@ -193,7 +194,7 @@ async function viewHome() {
         <div class="stats reveal">
           <div class="stat"><b data-count="${acad.length}">0</b><span>مادة في البرنامج الأكاديمي</span></div><div class="stat"><b data-count="${courses.length}">0</b><span>دورة منشورة</span></div>
           <div class="stat"><b data-count="${lessons}">0</b><span>درس مرئي وصوتي ومكتوب</span></div>
-          <div class="stat"><b data-count="${certs.length}">0</b><span>شهادة صادرة</span></div>
+          <div class="stat"><b data-count="${nCerts}">0</b><span>شهادة صادرة</span></div>
         </div>
       </div></section>
       <section class="section" style="padding-top:0"><div class="wrap">
@@ -238,7 +239,7 @@ async function viewHome() {
 }
 
 async function viewCourses() {
-  const courses = (await safeList('courses')).filter(c => c.published).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+  const courses = (await catalogCourses()).filter(c => c.published).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const cats = [...new Set(courses.map(c => c.category).filter(Boolean))];
   const progs = PROGRAMS.filter(([k]) => courses.some(c => (c.program || '') === k));
   const startProg = new URLSearchParams(location.hash.split('?')[1] || '').get('p');
@@ -288,7 +289,7 @@ async function viewCourse(id) {
   const xs = !exams.length ? [] : enr ? await myExams(exams, S.user.uid) : exams.map(e => ({ e }));
   /* علامتي في المادة (المعتمدة) لهذا الفصل */
   const myMark = enr ? (await safeList('marks', { uid: S.user.uid, courseId: id, published: true })).filter(m => (!enr.termId || m.termId === enr.termId)).sort((a, b) => (+b.attempt || 1) - (+a.attempt || 1))[0] : null;
-  const dist = gradeDist(c), atts = c.attachments || [];
+  const dist = gradeDist(c), atts = enr || S.user?.isAdmin ? await resolveAtts(c.attachments || []) : (c.attachments || []);
   const totalMin = lessons.reduce((a, l) => a + (+l.duration || 0), 0);
   const cont = lessons.find(l => !done.includes(l.id)) || lessons[0];
   /* البرنامج الأكاديمي: لا تسجيل ذاتي — الطالب يُسجَّل في مواد فصله تلقائياً عند قيده. الإجازات: لمن مساره مطابق */
@@ -371,6 +372,7 @@ async function viewLearn(cid, lid) {
   const hasExam = (c.exam?.questions || []).length > 0;
   const isDone = done.includes(l.id), last = idx === lessons.length - 1;
   const lv = c.online ? await safeGet('courseLive', cid) : null;
+  await resolveAtts(c.attachments || []);
   const latt = (c.attachments || []).filter(a => a.lessonId === l.id), catt = (c.attachments || []).filter(a => !a.lessonId);
   return {
     docTitle: l.title,
@@ -393,7 +395,7 @@ async function viewLearn(cid, lid) {
         ${lv ? liveMini(c, lv) : ''}<h3 style="font-size:1.1rem;margin-bottom:8px">تقدّمك</h3>
         <div class="bar"><i data-w="${pct}" id="pbar"></i></div><small class="muted" id="ptxt">${pct}% مكتمل</small>
         <nav class="side-list" style="margin-top:14px">${lessons.map((x, i) => `<a href="#/learn/${c.id}/${x.id}" class="${x.id === l.id ? 'on' : ''}"><span class="tick ${done.includes(x.id) ? 'done' : ''}" data-tick="${x.id}">${done.includes(x.id) ? ic('check', 14) : i + 1}</span><span style="flex:1;font-size:.94rem">${esc(x.title)}<br><small class="muted">${TYPE_LBL[x.type] || ''}</small></span></a>`).join('')}
-        ${catt.length || latt.length ? `<a href="#/course/${c.id}" onclick="setTimeout(()=>document.getElementById('lib')?.scrollIntoView({behavior:'smooth'}),400)"><span class="tick">${ic('clip', 14)}</span><span style="flex:1;font-size:.94rem">مكتبة المادة <small class="muted">(${(c.attachments || []).length})</small></span></a>` : ''}
+        ${catt.length || latt.length ? `<a href="#/course/${c.id}" data-act="scroll" data-to="lib"><span class="tick">${ic('clip', 14)}</span><span style="flex:1;font-size:.94rem">مكتبة المادة <small class="muted">(${(c.attachments || []).length})</small></span></a>` : ''}
         ${hasExam ? `<a href="#/exam/${c.id}"><span class="tick">${ic('quiz', 14)}</span><span style="flex:1;font-size:.94rem">${+c.offExams ? 'اختبار تدريبي' : 'الاختبار النهائي'}</span></a>` : ''}${+c.offExams ? `<a href="#/course/${c.id}"><span class="tick">${ic('award', 14)}</span><span style="flex:1;font-size:.94rem">امتحانات المادة</span></a>` : ''}</nav>
       </div></aside></div>`,
     mount() {
@@ -420,7 +422,20 @@ async function viewLearn(cid, lid) {
   };
 }
 
-async function issueCert(c, score) {
+/* إصدار الشهادة: في Firebase عبر السيرفر (الدالة issueCert تتحقق من التسجيل والإتمام وتعيد تصحيح المحاولة)،
+   وفي الوضع التجريبي محلياً كما كان */
+/* صورة المؤهل: في Firebase تُرفع إلى Storage (apps/{uid}/{program}.jpg) ويُحفظ مسارها فقط، وفي التجريبي داخل المستند */
+async function saveQualFile(id, p, dataUrl, now) {
+  if (!S.live) return DB.set('appFiles', id, { uid: S.user.uid, program: p, data: dataUrl, name: 'qualification.jpg', at: now });
+  const path = `apps/${S.user.uid}/${p}.jpg`, blob = await (await fetch(dataUrl)).blob();
+  await (await fbStorage()).ref(path).put(blob, { contentType: 'image/jpeg' });
+  return DB.set('appFiles', id, { uid: S.user.uid, program: p, path, name: 'qualification.jpg', at: now });
+}
+async function issueCert(c, score, attemptId) {
+  if (S.live) {
+    try { const r = await (await fbFunctions()).httpsCallable('issueCert')({ courseId: c.id, attemptId: attemptId || '' }); return r.data.code; }
+    catch (e) { throw new Error(e.message || 'تعذّر إصدار الشهادة'); }
+  }
   const ex = await safeList('certificates', { uid: S.user.uid, courseId: c.id });
   if (ex.length) return ex[0].id;
   const code = `BYN-${rnd4()}-${rnd4()}`, prof = await safeGet('users', S.user.uid);
@@ -470,7 +485,7 @@ async function viewExam(cid) {
           </ol>${msg}
           <div class="hero-cta" style="justify-content:center">${can ? `<button class="btn btn-primary" id="go">${(hidden ? attempts.length : passedA) ? 'إعادة الاختبار' : 'ابدأ الاختبار'}</button>` : ''}${hidden ? (myCert ? `<a class="btn btn-brass" href="#/cert/${myCert.id}">${ic('award', 17)} عرض الشهادة</a>` : '') : passedA && !practice ? `<button class="btn btn-brass" id="cert">${ic('award', 17)} عرض الشهادة</button>` : ''}</div></div>`;
         $('#go') && ($('#go').onclick = begin);
-        $('#cert') && ($('#cert').onclick = async () => { const code = await issueCert(c, passedA.score); go(`/cert/${code}`); });
+        $('#cert') && ($('#cert').onclick = async () => { try { const code = await issueCert(c, passedA.score, passedA.id); go(`/cert/${code}`); } catch (e) { toast(e.message, 'err'); } });
       };
       const begin = () => {
         if (+ex.duration) { endAt = Date.now() + ex.duration * 60000; timer = setInterval(tick, 1000); }
@@ -509,7 +524,7 @@ async function viewExam(cid) {
             box.innerHTML = `<div class="loading" style="min-height:300px"><svg class="loader" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">${I.star}</svg></div>`;
             try {
               await DB.set('attempts', aid, rec);
-              if (passed && ex.autoCert && !practice) await issueCert(c, null).catch(() => {});
+              if (passed && ex.autoCert && !practice) await issueCert(c, null, aid).catch(() => {});
               box.innerHTML = `<div class="qcard result saved"><div class="saved-ic">${ic('check', 46)}</div><h2>تم حفظ الاختبار بنجاح</h2><p class="muted">سُلّمت إجاباتك وحُفظت لدى إدارة الدورة. جزاك الله خيراً.</p>
                 <div class="hero-cta" style="justify-content:center"><a class="btn btn-primary" href="#/course/${c.id}">العودة إلى الدورة</a><a class="btn btn-ghost" href="#/me">حسابي</a></div></div>`;
             } catch (e) {
@@ -522,7 +537,7 @@ async function viewExam(cid) {
         let code = null;
         try {
           await DB.set('attempts', aid, rec);
-          if (passed && !practice) code = await issueCert(c, score);
+          if (passed && !practice) code = await issueCert(c, score, aid);
         } catch (e) { toast('تعذّر حفظ النتيجة: ' + e.message, 'err'); }
         const C = 2 * Math.PI * 54, col = passed ? 'var(--ok)' : 'var(--danger)';
         box.innerHTML = `<div class="qcard result">
@@ -671,17 +686,26 @@ async function viewTest(eid) {
         if (S.live) bank = (await DB.get('sitPapers', sid))?.questions || [];
         else if (!bank.length) bank = (await DB.get('examPapers', eid))?.questions || [];
         const qm = Object.fromEntries(bank.map(q => [q.id, q]));
-        qs = (sit.qids || []).map(id => qm[id]).filter(Boolean); ans = { ...(sit.answers || {}) };
+        qs = (sit.qids || []).map(id => qm[id]).filter(Boolean); ans = { ...(sit.answers || {}) }; savedJ = JSON.stringify(ans);
         if (!qs.length) throw new Error('تعذّر تحميل أسئلة جلستك — تواصل مع الإدارة');
         endAt = sitDeadline(e, sit);
         addEventListener('beforeunload', guard);
         if (endAt !== Infinity) timer = setInterval(tick, 1000);
-        saver = setInterval(() => dirty && save(false), 15000);
+        saver = setInterval(() => dirty && save(false).catch(() => {}), 30000);
+        /* إخفاء الصفحة أو إغلاقها: حفظ فوري لما لم يُحفظ */
+        const onHide = () => { if (document.visibilityState === 'hidden' && dirty && !busy) save(false).catch(() => {}); };
+        document.addEventListener('visibilitychange', onHide); S.cleanups.push(() => document.removeEventListener('visibilitychange', onHide));
         renderQ();
       };
+      /* الحفظ التلقائي: كل 30 ثانية، وعند إخفاء الصفحة، وعند الانتقال بين الأسئلة إن مرّ نصف دقيقة —
+         ولا يُكتب شيء إن لم تتغيّر الإجابات فعلاً منذ آخر حفظ */
+      let savedJ = JSON.stringify(ans), savedT = Date.now();
       const save = async (final) => {
+        const j = JSON.stringify(ans);
+        if (!final && j === savedJ) { dirty = false; return; }
         const v = { answers: ans, savedAt: NOW_TS() }; if (final) Object.assign(v, { status: 'submitted', submittedAt: NOW_TS() });
-        dirty = false; await DB.update('sittings', sid, v);
+        dirty = false;
+        try { await DB.update('sittings', sid, v); savedJ = j; savedT = Date.now(); } catch (e) { dirty = true; throw e; }
       };
       const tick = () => {
         const s = Math.max(0, Math.round((endAt - now()) / 1000)), t = $('#timer');
@@ -704,7 +728,7 @@ async function viewTest(eid) {
         $$('.opt', box).forEach(b => b.onclick = () => { ans[q.id] = +b.dataset.o; $$('.opt', box).forEach(x => x.classList.toggle('sel', x === b)); mark(); });
         $('#clr') && ($('#clr').onclick = () => { ans[q.id] = null; mark(); renderQ(); });
         const ain = $('#ain'); if (ain) { ain.oninput = () => { ans[q.id] = ain.value; mark(); const cc = $('#cc'); if (cc) cc.textContent = ain.value.trim().split(/\s+/).filter(Boolean).length + ' كلمة'; }; ain.onblur = () => dirty && save(false).catch(() => {}); }
-        const goQ = i => { if (dirty) save(false).then(() => { const s = $('#svd'); if (s) s.textContent = 'حُفظ تلقائياً'; }).catch(() => {}); cur = i; renderQ(); };
+        const goQ = i => { if (dirty && Date.now() - savedT > 30000) save(false).then(() => { const s = $('#svd'); if (s) s.textContent = 'حُفظ تلقائياً'; }).catch(() => {}); cur = i; renderQ(); };
         $$('.dots button', box).forEach(b => b.onclick = () => goQ(+b.dataset.i));
         $('#pv') && ($('#pv').onclick = () => goQ(cur - 1));
         $('#nx') && ($('#nx').onclick = () => goQ(cur + 1));
@@ -770,7 +794,7 @@ async function viewCert(code, lang) {
       ${mine && !ct.nameEn && langs.includes('en') ? `<form class="cert-note no-print" id="enf">${ic('edit', 18)}<span>اكتب اسمك بالإنجليزية ليظهر في الشهادة الإنجليزية:</span><input name="n" required dir="ltr" placeholder="Abdullah Ahmad"><button class="btn btn-primary btn-sm">حفظ</button></form>` : ''}
       ${langs.length > 1 ? `<div class="cert-tabs no-print" role="tablist">${langs.map(l => `<button role="tab" class="${l === cur ? 'on' : ''}" data-l="${l}" ${l === 'en' ? 'dir="ltr"' : ''}>${LBL[l]}</button>`).join('')}</div>` : ''}
       <div class="cert-wrap reveal" id="certWrap">${certHtml(ct, cur, { c, type })}</div>
-      <div class="cert-actions no-print"><button class="btn btn-brass" id="pdf">${ic('download', 17)} تحميل PDF</button>${langs.length > 1 ? `<button class="btn btn-ghost" id="pdfAll">${ic('download', 17)} تحميل الشهادتين</button>` : ''}<button class="btn btn-ghost" onclick="print()">${ic('print', 17)} طباعة</button><button class="btn btn-ghost" id="cp">${ic('link', 17)} نسخ رابط التحقق</button></div>
+      <div class="cert-actions no-print"><button class="btn btn-brass" id="pdf">${ic('download', 17)} تحميل PDF</button>${langs.length > 1 ? `<button class="btn btn-ghost" id="pdfAll">${ic('download', 17)} تحميل الشهادتين</button>` : ''}<button class="btn btn-ghost" data-act="print">${ic('print', 17)} طباعة</button><button class="btn btn-ghost" id="cp">${ic('link', 17)} نسخ رابط التحقق</button></div>
       <p class="muted no-print" style="text-align:center;margin-top:12px">${mine ? 'هذه شهادتك. شارك رابط التحقق أو امسح الرمز للتأكد منها.' : 'شهادة صادرة من المنصة وموثّقة.'}</p>
     </div>`,
     mount() {
@@ -870,7 +894,7 @@ async function viewRegister() {
 /* ================= عن المنصة / تواصل / الشروط ================= */
 async function viewAbout() {
   const st = S.settings;
-  const [courses, certs] = await Promise.all([safeList('courses'), safeList('certificates')]);
+  const [courses, nCerts] = await Promise.all([catalogCourses(), certCount()]);
   const pub = courses.filter(c => c.published), cats = [...new Set(pub.map(c => c.category).filter(Boolean))];
   const body = st.aboutLong ? richText(st.aboutLong) : `<p>${esc(st.about)}</p><p>${esc(st.heroText)}</p>`;
   return {
@@ -883,7 +907,7 @@ async function viewAbout() {
           <ol class="lessons" style="margin-bottom:16px">
             <li><span class="n">${ic('book', 15)}</span><div class="t">دورات منشورة<small>${pub.length}</small></div></li>
             ${cats.length ? `<li><span class="n">${ic('star', 15)}</span><div class="t">العلوم<small>${cats.map(esc).join('، ')}</small></div></li>` : ''}
-            <li><span class="n">${ic('award', 15)}</span><div class="t">شهادات صادرة<small>${certs.length}</small></div></li>
+            <li><span class="n">${ic('award', 15)}</span><div class="t">شهادات صادرة<small>${nCerts}</small></div></li>
           </ol>
           <div style="display:grid;gap:8px"><a class="btn btn-primary btn-block" href="#/courses">تصفّح الدورات</a><a class="btn btn-ghost btn-block" href="#/contact">تواصل معنا</a></div>
         </div></aside>
@@ -947,7 +971,7 @@ async function viewContact() {
 /* ================= الأسئلة الشائعة ================= */
 const faqItem = f => `<details class="faq" id="q-${esc(f.id)}"><summary><span class="faq-q">${esc(f.q)}</span><span class="faq-pm" aria-hidden="true"></span></summary><div class="faq-a">${richText(f.a)}</div></details>`;
 async function viewFaq() {
-  const all = (await safeList('faqs')).filter(f => f.published !== false).sort((a, b) => (+a.order || 99) - (+b.order || 99));
+  const all = (await catalogFaqs()).filter(f => f.published !== false).sort((a, b) => (+a.order || 99) - (+b.order || 99));
   const list = all.length ? all : DEFAULT_FAQS.map(([cat, q, a], i) => ({ id: 'd' + i, cat, q, a }));
   const cats = [...new Set(list.map(f => f.cat || 'عام'))];
   return {
@@ -978,9 +1002,10 @@ async function viewFaq() {
 
 /* ================= مكتبتي: كل مرفقات المواد المسجّل فيها ================= */
 async function viewLibrary() {
-  const [enr, courses] = await Promise.all([safeList('enrollments', { uid: S.user.uid }), safeList('courses')]);
+  const [enr, courses] = await Promise.all([safeList('enrollments', { uid: S.user.uid }), catalogCourses()]);
   const cm = Object.fromEntries(courses.map(c => [c.id, c]));
   const items = enr.map(e => cm[e.courseId]).filter(Boolean).flatMap(c => (c.attachments || []).map(a => ({ ...a, c, lesson: (c.lessons || []).find(l => l.id === a.lessonId)?.title || '' })));
+  await resolveAtts(items);
   const mine = [...new Map(items.map(a => [a.c.id, a.c])).values()];
   return {
     docTitle: 'مكتبتي',
@@ -1042,7 +1067,7 @@ function programsTeaser(rows, ij) {
     </div></div></section>`;
 }
 async function viewPrograms() {
-  const st = S.settings, all = await safeList('courses');
+  const st = S.settings, all = await catalogCourses();
   const rows = planRows(all), hrs = sumHours(rows);
   const ijaza = ijazaRows(all);
   const link = r => r.id && r.published ? `<a href="#/course/${r.id}">${esc(r.title)}</a>` : esc(r.title);
@@ -1079,7 +1104,7 @@ async function viewPrograms() {
   };
 }
 async function viewIjaza(key) {
-  const st = S.settings, rows = ijazaRows(await safeList('courses')), r = rows.find(x => String(x.key) === key);
+  const st = S.settings, rows = ijazaRows(await catalogCourses()), r = rows.find(x => String(x.key) === key);
   if (!r) return notFound('المادة غير موجودة.');
   const desc = (r.id && String(r.description || '').trim()) || r.planDesc;
   const others = rows.filter(x => x !== r);
@@ -1257,11 +1282,13 @@ function applyForm(p, a, me) {
         const b = $('button', f); b.disabled = true;
         try {
           const now = Date.now();
-          if (file) await DB.set('appFiles', id, { uid: S.user.uid, program: p, data: file, name: 'qualification.jpg', at: now });
+          if (file) await saveQualFile(id, p, file, now);
           const data = { ...d, uid: S.user.uid, program: p, track: p === 'ijaza' ? d.track : '', userName: d.name, username: S.user.username || '', pledge: true, hasFile: !!(file || v.hasFile), status: 'submitted', updatedAt: now, submittedAt: a?.status === 'submitted' ? a.submittedAt || now : now };
           if (p !== 'ijaza') for (const k of ['arabic', 'quranAmt', 'priorIjaza']) data[k] = '';
           if (a) await DB.update('applications', id, data); else await DB.set('applications', id, data);
-          DB.update('users', S.user.uid, { name: d.name, nameEn: d.nameEn, phone: d.phone }).then(() => { S.user.name = d.name; }).catch(() => {});
+          /* بعد القبول يُقفل الاسم في الحساب (تعدّله الإدارة) — فيُحدَّث الجوال وحده إن رُفض تغيير الاسم */
+          DB.update('users', S.user.uid, { name: d.name, nameEn: d.nameEn, phone: d.phone }).then(() => { S.user.name = d.name; })
+            .catch(() => DB.update('users', S.user.uid, { phone: d.phone }).catch(() => {}));
           toast(a?.status === 'incomplete' ? 'أُرسل الاستكمال' : 'أُرسل طلبك — تابع حالته من هنا', 'ok'); goOrRoute(`/apply/${p}`);
         } catch (err) { $('#err').textContent = /permission|insufficient/i.test(err.message) ? 'تعذّر الإرسال: القبول مغلق أو الطلب لا يقبل التعديل الآن.' : err.message; b.disabled = false; }
       };
@@ -1323,7 +1350,7 @@ function acadSection(apps, recs, regs, terms, courses, enr) {
 
 /* ================= التقويم الأكاديمي (عام) ================= */
 async function viewCalendar() {
-  const [terms, courses] = await Promise.all([safeList('terms'), safeList('courses')]);
+  const [terms, courses] = await Promise.all([safeList('terms'), catalogCourses()]);
   const list = terms.filter(t => (t.program || 'academy') === 'academy').sort(termSort), now = Date.now();
   const cur = list.find(t => !t.closedAt && (!+t.endsAt || now <= +t.endsAt));
   const card = t => { const ev = termEvents(t, courses.filter(c => c.published)), k = termPhaseKey(t);
@@ -1340,7 +1367,7 @@ async function viewCalendar() {
 
 /* ================= حساب الطالب ================= */
 async function viewMe() {
-  const [enr, certs, courses, att, apps, recs, regs, terms, marks0] = await Promise.all([safeList('enrollments', { uid: S.user.uid }), safeList('certificates', { uid: S.user.uid }), safeList('courses'), safeList('attempts', { uid: S.user.uid }),
+  const [enr, certs, courses, att, apps, recs, regs, terms, marks0] = await Promise.all([safeList('enrollments', { uid: S.user.uid }), safeList('certificates', { uid: S.user.uid }), catalogCourses(), safeList('attempts', { uid: S.user.uid }),
     safeList('applications', { uid: S.user.uid }), safeList('records', { uid: S.user.uid }), safeList('regs', { uid: S.user.uid }), safeList('terms'), safeList('marks', { uid: S.user.uid, published: true })]);
   const marks = marks0.filter(m => m.published), nAtt = courses.filter(c => enr.some(e => e.courseId === c.id)).reduce((a, c) => a + (c.attachments || []).length, 0);
   const cm = Object.fromEntries(courses.map(c => [c.id, c]));

@@ -12,26 +12,26 @@ function adminShell(active, title, html, actions = '') {
     ${html}</main></div>`;
 }
 /* ================= لوحة التحكم ================= */
-async function loadAll() {
-  const [users, courses, enrollments, attempts, certificates, records, applications, exams, sittings, grades] = await Promise.all(['users', 'courses', 'enrollments', 'attempts', 'certificates', 'records', 'applications', 'exams', 'sittings', 'grades'].map(c => safeList(c)));
-  return { users, courses, enrollments, attempts, certificates, records, applications, exams, sittings, grades };
-}
+/* لوحة المؤشرات: أعداد ومتوسطات بالتجميع على السيرفر (DB.count / DB.avg) وأحدث العناصر فقط —
+   بدل تحميل كل المستخدمين والتسجيلات والمحاولات والجلسات والدرجات في كل فتح */
 async function adminDash() {
-  const d = await loadAll();
-  const avg = d.attempts.length ? Math.round(d.attempts.reduce((a, x) => a + x.score, 0) / d.attempts.length) : 0;
-  const passRate = d.attempts.length ? Math.round(d.attempts.filter(a => a.passed).length / d.attempts.length * 100) : 0;
-  const per = d.courses.map(c => ({ t: c.title, n: d.enrollments.filter(e => e.courseId === c.id).length })).sort((a, b) => b.n - a.n).slice(0, 8);
+  const n = (c, f) => DB.count(c, f).catch(() => 0);
+  const [courses, exams, recent, newSt, nA1, nA2, nRec, nUsers, nEnr, nCerts, nSub, nGr, nPend, nAtt, nPass, avgSc] = await Promise.all([
+    DB.list('courses'), safeList('exams'), DB.recent('attempts', 'at', 7).catch(() => []), DB.recent('users', 'createdAt', 6).catch(() => []),
+    n('applications', { status: 'submitted' }), n('applications', { status: 'review' }), n('records', { status: 'active' }), n('users'), n('enrollments'), n('certificates'),
+    n('sittings', { status: 'submitted' }), n('grades'), n('grades', [['pending', '>', 0]]), n('attempts'), n('attempts', { passed: true }), DB.avg('attempts', 'score').catch(() => 0)]);
+  const d = { courses, exams };
+  const avg = Math.round(avgSc), passRate = nAtt ? Math.round(nPass / nAtt * 100) : 0;
+  const per = (await Promise.all(courses.map(async c => ({ t: c.title, n: await n('enrollments', { courseId: c.id }) })))).sort((a, b) => b.n - a.n).slice(0, 8);
   const mx = Math.max(1, ...per.map(p => p.n));
-  const recent = [...d.attempts].sort((a, b) => b.at - a.at).slice(0, 7);
-  const newSt = [...d.users].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0)).slice(0, 6);
   const kpi = (i, n, t, suf = '') => `<div class="kpi">${ic(i, 22)}<b><span data-count="${n}">0</span>${suf}</b><span>${t}</span></div>`;
   /* أوراق امتحانات بانتظار التصحيح: سُلّمت (أو انتهى وقتها) ولم تُصحَّح، أو فيها أسئلة مقالية لم تُصحَّح */
-  const xm = Object.fromEntries(d.exams.map(e => [e.id, e])), gk = new Set(d.grades.map(g => g.id));
-  const toGrade = d.sittings.filter(s => xm[s.examId] && gradable(xm[s.examId], s) && !gk.has(s.id)).length + d.grades.filter(g => g.pending > 0).length;
+  /* أوراق مسلَّمة بلا درجة بعد + درجات فيها أسئلة مقالية لم تُصحَّح (الأوراق المنتهية تُسلَّم تلقائياً كل 10 دقائق) */
+  const toGrade = Math.max(0, nSub - nGr) + nPend;
   const upEx = d.exams.filter(e => e.published && examPhase(e) !== 'closed' && +e.opensAt).sort(examSort).slice(0, 5);
   return {
     active: '', title: 'لوحة المؤشرات',
-    html: `<div class="kpis">${kpi('file', d.applications.filter(a => ['submitted', 'review'].includes(a.status)).length, 'طلب التحاق بانتظار القرار')}${kpi('shield', d.records.filter(r => r.status === 'active').length, 'طالب منتظم في البرامج')}${kpi('users', d.users.length, 'حساب طالب')}${kpi('book', d.courses.filter(c => c.published).length, `دورة منشورة من ${d.courses.length}`)}${kpi('play', d.enrollments.length, 'تسجيل في الدورات')}${kpi('award', d.certificates.length, 'شهادة صادرة')}${kpi('pen', toGrade, 'ورقة امتحان بانتظار التصحيح')}${kpi('chart', avg, 'متوسط درجات الاختبارات', '%')}${kpi('check', passRate, 'نسبة النجاح', '%')}</div>
+    html: `<div class="kpis">${kpi('file', nA1 + nA2, 'طلب التحاق بانتظار القرار')}${kpi('shield', nRec, 'طالب منتظم في البرامج')}${kpi('users', nUsers, 'حساب طالب')}${kpi('book', d.courses.filter(c => c.published).length, `دورة منشورة من ${d.courses.length}`)}${kpi('play', nEnr, 'تسجيل في الدورات')}${kpi('award', nCerts, 'شهادة صادرة')}${kpi('pen', toGrade, 'ورقة امتحان بانتظار التصحيح')}${kpi('chart', avg, 'متوسط درجات الاختبارات', '%')}${kpi('check', passRate, 'نسبة النجاح', '%')}</div>
       <div class="cols">
         <div class="panel"><h3>التسجيل حسب الدورة</h3>${per.length ? `<div class="hbars">${per.map(p => `<div class="hbar"><span class="t" title="${esc(p.t)}">${esc(p.t)}</span><div class="track"><i data-w="${Math.round(p.n / mx * 100)}"></i></div><b>${p.n}</b></div>`).join('')}</div>` : '<p class="muted">لا توجد دورات بعد.</p>'}</div>
         <div class="panel"><h3>أحدث الطلاب</h3>${newSt.length ? `<div class="rowlist">${newSt.map(u => `<div class="ritem"><span class="n tick">${ic('user', 14)}</span><div class="grow"><strong>${esc(u.name)}</strong><br><small dir="ltr">${esc(u.username)}</small></div><small>${fmtDate(u.createdAt)}</small></div>`).join('')}</div>` : '<p class="muted">لا يوجد طلاب بعد.</p>'}</div>
@@ -42,14 +42,20 @@ async function adminDash() {
 }
 
 async function adminCourses() {
-  const [courses, enr] = await Promise.all([DB.list('courses'), DB.list('enrollments')]);
+  /* عدد المسجّلين في كل مادة بالعدّ على السيرفر (قراءة واحدة لكل مادة) بدل قراءة كل التسجيلات */
+  const courses = await DB.list('courses');
+  const nEnr = Object.fromEntries(await Promise.all(courses.map(async c => [c.id, await DB.count('enrollments', { courseId: c.id }).catch(() => '—')])));
+  /* فهرس الدورات للصفحات العامة: يُبنى هنا إن لم تبنه الدالة بعد */
+  if (S.live && !(await safeGet('stats', 'catalog'))?.courses) DB.set('stats', 'catalog', { courses: courses.map(liteCourse), faqs: await safeList('faqs'), updatedAt: Date.now() }).catch(() => {});
+  /* ترحيل لمرة واحدة: إزالة روابط تنزيل ملفات Storage من مستندات الدورات العامة (يبقى المسار) */
+  if (S.live) for (const c of courses) if ((c.attachments || []).some(a => a.path && a.url)) DB.update('courses', c.id, { attachments: c.attachments }).catch(() => {});
   const pr = c => ({ academy: 0, ijaza: 1 })[c.program] ?? 2;
   courses.sort((a, b) => pr(a) - pr(b) || (pr(a) < 2 ? planSort(a, b) : (b.createdAt || 0) - (a.createdAt || 0)));
   const missing = academyCourses().filter(p => !courses.some(c => c.title.trim() === p.title || (p.program === 'ijaza' && c.program === 'ijaza' && (c.ijazaKey === p.ijazaKey || c.title.includes(p.title)))));
   return {
     active: 'courses', title: 'الدورات', actions: `${missing.length ? `<button class="btn btn-ghost btn-sm" id="impPlan" title="إنشاء مواد البرنامجين كمسودات">${ic('download', 16)} استيراد الخطة الدراسية (${missing.length})</button>` : ''}<button class="btn btn-primary btn-sm" id="newC">${ic('plus', 16)} دورة جديدة</button>`,
     html: courses.length ? `<div class="tbl-wrap"><table><thead><tr><th>الدورة</th><th>البرنامج</th><th>التصنيف</th><th>الدروس</th><th>الأسئلة</th><th>المسجّلون</th><th>التسجيل</th><th>الحالة</th><th></th></tr></thead><tbody>
-      ${courses.map(c => `<tr><td><a href="#/course/${c.id}" style="display:flex;align-items:center;gap:10px"><span style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,${(THEMES[c.theme] || THEMES.teal).join(',')})">${ic(c.icon || 'book', 17)}</span><strong>${esc(c.title)}</strong>${c.online ? `<span class="pill ok" title="دورة أونلاين بلقاءات مباشرة" style="display:inline-flex;gap:4px;align-items:center">${ic('video', 13)} مباشر</span>` : ''}</a></td><td>${c.program ? `${esc(programName(c.program))}${termLabel(c.term) ? `<br><small class="muted">${esc(termLabel(c.term))}</small>` : ''}` : '<span class="muted">عامة</span>'}</td><td>${esc(c.category || '—')}</td><td>${(c.lessons || []).length}</td><td>${(c.exam?.questions || []).length}</td><td>${enr.filter(e => e.courseId === c.id).length}</td>
+      ${courses.map(c => `<tr><td><a href="#/course/${c.id}" style="display:flex;align-items:center;gap:10px"><span style="width:34px;height:34px;border-radius:10px;display:grid;place-items:center;color:#fff;background:linear-gradient(135deg,${(THEMES[c.theme] || THEMES.teal).join(',')})">${ic(c.icon || 'book', 17)}</span><strong>${esc(c.title)}</strong>${c.online ? `<span class="pill ok" title="دورة أونلاين بلقاءات مباشرة" style="display:inline-flex;gap:4px;align-items:center">${ic('video', 13)} مباشر</span>` : ''}</a></td><td>${c.program ? `${esc(programName(c.program))}${termLabel(c.term) ? `<br><small class="muted">${esc(termLabel(c.term))}</small>` : ''}` : '<span class="muted">عامة</span>'}</td><td>${esc(c.category || '—')}</td><td>${(c.lessons || []).length}</td><td>${(c.exam?.questions || []).length}</td><td>${nEnr[c.id]}</td>
         <td>${(() => { const es = enrollState(c); return `<span class="pill ${es.open ? 'ok' : es.state === 'soon' ? 'mut' : 'no'}" title="${esc(enrollLabel(es) || 'مفتوح دائماً')}">${es.state === 'always' ? 'مفتوح' : es.state === 'open' ? 'مفتوح مؤقتاً' : es.state === 'soon' ? 'قريباً' : 'مغلق'}</span>`; })()}</td>
         <td><button class="pill ${c.published ? 'ok' : 'mut'}" style="border:0;cursor:pointer" data-pub="${c.id}" title="تبديل حالة النشر">${c.published ? 'منشورة' : 'مسودة'}</button></td>
         <td><div class="acts"><a class="icon-btn sm" href="index.html#/course/${c.id}" target="_blank" title="عرض">${ic('eye', 16)}</a><a class="icon-btn sm" href="#/course/${c.id}" title="تعديل">${ic('edit', 16)}</a><button class="icon-btn sm danger" data-del="${c.id}" title="حذف">${ic('trash', 16)}</button></div></td></tr>`).join('')}
@@ -73,6 +79,7 @@ async function adminCourses() {
 
 async function adminCourse(id) {
   const [c, ctypes, lv0, offx0] = await Promise.all([DB.get('courses', id), safeList('certTypes'), safeGet('courseLive', id), safeList('exams', { courseId: id })]);
+  if (c) await resolveAtts(c.attachments || []);
   if (!c) return { active: 'courses', title: 'غير موجودة', html: '<div class="empty">الدورة غير موجودة.</div>' };
   c.lessons = c.lessons || []; c.exam = { ...DEFAULT_EXAM(), ...(c.exam || {}) };
   const lv = { url: '', meetingId: '', passcode: '', note: '', sessions: [], ...(lv0 || {}) }; delete lv.id;
@@ -342,8 +349,13 @@ async function adminCourse(id) {
   };
 }
 
+/* الطلاب: الحسابات والقيود فقط. عدد دورات كل طالب وشهاداته من عدّادين في مستنده (nEnr / nCert) تحدّثهما الدوال،
+   وتفاصيل الطالب (تسجيلاته ومحاولاته) تُجلب عند فتحها فقط */
 async function adminStudents() {
-  const d = await loadAll();
+  const [users, courses, records] = await Promise.all(['users', 'courses', 'records'].map(c => safeList(c)));
+  const d = { users, courses, records };
+  if (!S.live) { const [en, ce] = await Promise.all([safeList('enrollments'), safeList('certificates')]); for (const u of users) { u.nEnr = en.filter(e => e.uid === u.id).length; u.nCert = ce.filter(c => c.uid === u.id).length; } }
+  const cnt = v => v == null ? '<span class="muted">—</span>' : Math.max(0, +v || 0);
   const rows = () => d.users.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   const studentForm = (u = {}) => `<label>الاسم الكامل<input name="name" required value="${esc(u.name)}"></label>
     <label>الاسم بالإنجليزية <span class="hint">للشهادة</span><input name="nameEn" dir="ltr" value="${esc(u.nameEn)}"></label>
@@ -360,7 +372,7 @@ async function adminStudents() {
         const list = rows().filter(u => !q || (u.name + u.username + (u.phone || '')).toLowerCase().includes(q));
         $('#tbl').innerHTML = list.length ? `<div class="tbl-wrap"><table><thead><tr><th>الطالب</th><th>اسم المستخدم</th><th>الرقم الجامعي</th><th>الجوال</th><th>الدورات</th><th>الشهادات</th><th>الحالة</th><th></th></tr></thead><tbody>${list.map(u => `<tr>
           <td><strong>${esc(u.name)}</strong><br><small class="muted">منذ ${fmtDate(u.createdAt)}</small></td><td dir="ltr" style="text-align:end">${esc(u.username)}</td><td>${d.records.filter(r => r.uid === u.id).map(r => `<span dir="ltr">${esc(r.studentNo)}</span> <small class="muted">${esc(programName(r.program))}</small>`).join('<br>') || '<span class="muted">—</span>'}</td><td dir="ltr" style="text-align:end">${esc(u.phone || '—')}</td>
-          <td>${d.enrollments.filter(e => e.uid === u.id).length}</td><td>${d.certificates.filter(c => c.uid === u.id).length}</td>
+          <td>${cnt(u.nEnr)}</td><td>${cnt(u.nCert)}</td>
           <td><span class="pill ${u.disabled ? 'no' : 'ok'}">${u.disabled ? 'موقوف' : 'نشط'}</span></td>
           <td><div class="acts"><button class="icon-btn sm" data-a="view" data-id="${u.id}" title="التفاصيل">${ic('eye', 16)}</button><a class="icon-btn sm" href="#/transcript/${u.id}" title="كشف الدرجات">${ic('file', 16)}</a><button class="icon-btn sm" data-a="enroll" data-id="${u.id}" title="التسجيل في دورات">${ic('book', 16)}</button><button class="icon-btn sm" data-a="edit" data-id="${u.id}" title="تعديل">${ic('edit', 16)}</button>${Auth.canReset ? `<button class="icon-btn sm" data-a="pw" data-id="${u.id}" title="كلمة مرور جديدة">${ic('key', 16)}</button>` : ''}<button class="icon-btn sm" data-a="toggle" data-id="${u.id}" title="${u.disabled ? 'تفعيل' : 'إيقاف'}">${ic(u.disabled ? 'check' : 'ban', 16)}</button><button class="icon-btn sm danger" data-a="del" data-id="${u.id}" title="حذف">${ic('trash', 16)}</button></div></td></tr>`).join('')}</tbody></table></div>`
           : `<div class="empty">${ic('users', 36)}<p>${q ? 'لا نتائج مطابقة.' : 'لا يوجد طلاب بعد. أضف طالباً أو فعّل التسجيل الذاتي من الإعدادات.'}</p></div>`;
@@ -374,7 +386,7 @@ async function adminStudents() {
           modal('أُضيف الطالب', `<p>أرسل للطالب بيانات الدخول:</p><pre class="code">${esc(location.href.replace(/[^/]*$/, ''))}#/login\nاسم المستخدم: ${esc(data.username.toLowerCase())}\nكلمة المرور: ${esc(data.password)}</pre>`, { noFoot: true });
         }
       });
-      $('#csv').onclick = () => downloadFile('students.csv', toCSV([['الاسم', 'اسم المستخدم', 'الجوال', 'تاريخ التسجيل', 'عدد الدورات', 'عدد الشهادات', 'الحالة'], ...rows().map(u => [u.name, u.username, u.phone, fmtDate(u.createdAt), d.enrollments.filter(e => e.uid === u.id).length, d.certificates.filter(c => c.uid === u.id).length, u.disabled ? 'موقوف' : 'نشط'])]));
+      $('#csv').onclick = () => downloadFile('students.csv', toCSV([['الاسم', 'اسم المستخدم', 'الجوال', 'تاريخ التسجيل', 'عدد الدورات', 'عدد الشهادات', 'الحالة'], ...rows().map(u => [u.name, u.username, u.phone, fmtDate(u.createdAt), Math.max(0, +u.nEnr || 0), Math.max(0, +u.nCert || 0), u.disabled ? 'موقوف' : 'نشط'])]));
       $('#tbl').onclick = async e => {
         const b = e.target.closest('[data-a]'); if (!b) return; const u = d.users.find(x => x.id === b.dataset.id); if (!u) return;
         const a = b.dataset.a;
@@ -383,26 +395,25 @@ async function adminStudents() {
         if (a === 'toggle') { u.disabled = !u.disabled; await DB.update('users', u.id, { disabled: u.disabled }); draw(); toast(u.disabled ? 'أُوقف الحساب' : 'فُعّل الحساب', 'ok'); }
         if (a === 'del') {
           if (!(await confirmBox(`حذف الطالب «${esc(u.name)}» مع تسجيلاته ونتائجه؟ تبقى شهاداته الصادرة قابلة للتحقق.${S.live ? '<br><small class="muted">ملاحظة: احذف حسابه أيضاً من Firebase ← Authentication.</small>' : ''}`, 'حذف'))) return;
-          for (const en of d.enrollments.filter(x => x.uid === u.id)) await DB.del('enrollments', en.id);
-          for (const at of d.attempts.filter(x => x.uid === u.id)) await DB.del('attempts', at.id);
+          for (const col of ['enrollments', 'attempts', 'applications']) for (const x of await safeList(col, { uid: u.id })) await DB.del(col, x.id);
           for (const col of ['sittings', 'sitPapers', 'grades', 'marks']) for (const x of await safeList(col, { uid: u.id })) await DB.del(col, x.id);
-          for (const [c, l] of [['applications', d.applications], ['records', d.records], ['regs', await safeList('regs', { uid: u.id })]]) for (const x of l.filter(x => x.uid === u.id)) await DB.del(c, x.id);
-          for (const p of ADM_PROGS) await DB.del('appFiles', `${u.id}_${p}`).catch(() => {});
-          await DB.del('users', u.id); d.users = d.users.filter(x => x.id !== u.id); d.enrollments = d.enrollments.filter(x => x.uid !== u.id); draw(); toast('حُذف الطالب');
+          for (const [c, l] of [['records', d.records], ['regs', await safeList('regs', { uid: u.id })]]) for (const x of l.filter(x => x.uid === u.id)) await DB.del(c, x.id);
+          for (const p of ADM_PROGS) { await deleteAttachmentFile({ path: `apps/${u.id}/${p}.jpg` }); await DB.del('appFiles', `${u.id}_${p}`).catch(() => {}); }
+          await DB.del('users', u.id); d.users = d.users.filter(x => x.id !== u.id); d.records = d.records.filter(x => x.uid !== u.id); draw(); toast('حُذف الطالب');
         }
         if (a === 'enroll') {
-          const mine = d.enrollments.filter(x => x.uid === u.id).map(x => x.courseId);
+          const mine = (await safeList('enrollments', { uid: u.id })).map(x => x.courseId);
           modal(`دورات ${esc(u.name)}`, d.courses.length ? d.courses.map(c => `<label class="check"><input type="checkbox" name="c" value="${c.id}" ${mine.includes(c.id) ? 'checked' : ''}> ${esc(c.title)}</label>`).join('') : '<p class="muted">لا توجد دورات.</p>', {
             onSubmit: async fd => {
               const want = fd.getAll('c');
-              for (const cid of want.filter(x => !mine.includes(x))) { const c = d.courses.find(x => x.id === cid); const en = { uid: u.id, courseId: cid, userName: u.name, courseTitle: c.title, completed: [], enrolledAt: Date.now() }; await DB.set('enrollments', `${u.id}_${cid}`, en); d.enrollments.push({ id: `${u.id}_${cid}`, ...en }); }
-              for (const cid of mine.filter(x => !want.includes(x))) { await DB.del('enrollments', `${u.id}_${cid}`); d.enrollments = d.enrollments.filter(x => x.id !== `${u.id}_${cid}`); }
+              for (const cid of want.filter(x => !mine.includes(x))) { const c = d.courses.find(x => x.id === cid); const en = { uid: u.id, courseId: cid, userName: u.name, courseTitle: c.title, completed: [], enrolledAt: Date.now() }; await DB.set('enrollments', `${u.id}_${cid}`, en); u.nEnr = (+u.nEnr || 0) + 1; }
+              for (const cid of mine.filter(x => !want.includes(x))) { await DB.del('enrollments', `${u.id}_${cid}`); u.nEnr = Math.max(0, (+u.nEnr || 0) - 1); }
               draw(); toast('حُدّثت دورات الطالب', 'ok');
             }
           });
         }
         if (a === 'view') {
-          const ens = d.enrollments.filter(x => x.uid === u.id), ats = d.attempts.filter(x => x.uid === u.id).sort((x, y) => y.at - x.at);
+          const [ens, ats0] = await Promise.all([safeList('enrollments', { uid: u.id }), safeList('attempts', { uid: u.id })]), ats = ats0.sort((x, y) => y.at - x.at);
           modal(esc(u.name), `<p class="muted" dir="ltr" style="text-align:end">${esc(u.username)}${u.phone ? ' — ' + esc(u.phone) : ''}</p>
             <h4>التقدّم في الدورات</h4>${ens.length ? `<div class="hbars">${ens.map(en => { const c = d.courses.find(x => x.id === en.courseId); const ls = c?.lessons || []; const p = ls.length ? Math.round(ls.filter(l => (en.completed || []).includes(l.id)).length / ls.length * 100) : 0; return `<div class="hbar"><span class="t">${esc(c?.title || en.courseTitle)}</span><div class="track"><i style="width:${p}%"></i></div><b>${p}%</b></div>`; }).join('')}</div>` : '<p class="muted">غير مسجّل في أي دورة.</p>'}
             <h4 style="margin-top:18px">محاولات الاختبار</h4>${ats.length ? `<div class="rowlist">${ats.map(x => `<div class="ritem"><div class="grow">${esc(x.courseTitle)}<br><small>${fmtDT(x.at)}</small></div><span class="pill ${x.passed ? 'ok' : 'no'}">${x.score}%</span></div>`).join('')}</div>` : '<p class="muted">لا توجد محاولات.</p>'}`, { wide: true, noFoot: true });
@@ -417,10 +428,13 @@ const RES_TABS = [['', 'الامتحانات الرسمية', 'shield'], ['marks
 const resTabs = tab => `<div class="tabs">${RES_TABS.map(([k, t, i]) => `<a class="tab ${tab === k ? 'on' : ''}" href="#/results${k ? '/' + k : ''}">${ic(i, 15)} ${t}</a>`).join('')}</div>`;
 /* نظرة عامة على كل الامتحانات الرسمية: الموعد، الحالة، التسليمات، ما ينتظر التصحيح، إعلان النتائج */
 async function adminOffResults() {
-  const [exams, sits, grades, courses] = await Promise.all([DB.list('exams'), DB.list('sittings'), DB.list('grades'), DB.list('courses')]);
-  const cm = Object.fromEntries(courses.map(c => [c.id, c])), gk = new Set(grades.map(g => g.id));
-  const st = exams.map(e => { const ss = sits.filter(x => x.examId === e.id), gs = grades.filter(g => g.examId === e.id);
-    return { e, ph: examPhase(e), n: ss.length, todo: ss.filter(x => gradable(e, x) && !gk.has(x.id)).length + gs.filter(g => g.pending > 0).length, rev: gs.filter(g => (g.review || []).length).length }; })
+  /* الامتحانات التي أُعلنت نتائجها: عدد التسليمات فقط (عدّ على السيرفر). غيرها: جلساتها ودرجاتها هي فقط */
+  const [exams, courses] = await Promise.all([DB.list('exams'), DB.list('courses')]);
+  const cm = Object.fromEntries(courses.map(c => [c.id, c]));
+  const st = (await Promise.all(exams.map(async e => {
+    if (e.resultsOut) return { e, ph: examPhase(e), n: await DB.count('sittings', { examId: e.id }).catch(() => 0), todo: 0, rev: 0 };
+    const [ss, gs] = await Promise.all([safeList('sittings', { examId: e.id }), safeList('grades', { examId: e.id })]), gk = new Set(gs.map(g => g.id));
+    return { e, ph: examPhase(e), n: ss.length, todo: ss.filter(x => gradable(e, x) && !gk.has(x.id)).length + gs.filter(g => g.pending > 0).length, rev: gs.filter(g => (g.review || []).length).length }; })))
     .sort((a, b) => (b.todo - a.todo) || ({ open: 0, soon: 1, closed: 2 }[a.ph] - { open: 0, soon: 1, closed: 2 }[b.ph]) || examSort(a.e, b.e));
   return {
     active: 'results', title: 'الامتحانات والنتائج',
@@ -441,7 +455,8 @@ async function adminOffResults() {
 async function adminResults(tab = '') {
   if (tab === 'marks') return adminMarksIndex();
   if (tab !== 'practice') return adminOffResults();
-  const [att, courses, certs] = await Promise.all([DB.list('attempts'), DB.list('courses'), DB.list('certificates')]);
+  const [att, courses] = await Promise.all([DB.recent('attempts', 'at', 1000), DB.list('courses')]);
+  const certs = (await pmap([...new Set(att.map(a => a.courseId))], 6, cid => safeList('certificates', { courseId: cid }))).flat();
   const cm = Object.fromEntries(courses.map(c => [c.id, c])), certOf = a => certs.find(x => x.uid === a.uid && x.courseId === a.courseId);
   att.sort((a, b) => b.at - a.at);
   return {
@@ -747,7 +762,9 @@ const markWrite = (c, t, row, v) => {
     dist: gradeDist(c), pass: coursePass(c), att: v.att, part: v.part, quiz: v.quiz, final: v.final, src: v.src || {}, total: r.total, result: r.result, word: r.word, attempt: row.attempt, published: !!row.m?.published, updatedAt: Date.now(), by: 'admin' };
 };
 async function adminMarks(cid, tid = '') {
-  const [c, exams, grades, enr, marks, terms, recs, certs] = await Promise.all([DB.get('courses', cid), safeList('exams', { courseId: cid }), safeList('grades', { courseId: cid }), safeList('enrollments', { courseId: cid }), safeList('marks', { courseId: cid }), safeList('terms'), safeList('records'), safeList('certificates', { courseId: cid })]);
+  const [c, exams, grades, enr, marks, terms, recs, certs] = await Promise.all([DB.get('courses', cid), safeList('exams', { courseId: cid }), safeList('grades', { courseId: cid }), safeList('enrollments', { courseId: cid }), safeList('marks', { courseId: cid }), safeList('terms'), Promise.resolve([]), safeList('certificates', { courseId: cid })]);
+  /* قيود طلاب هذه المادة فقط (where uid in) بدل كل القيود */
+  recs.push(...await DB.listIn('records', 'uid', [...enr.map(e => e.uid), ...marks.map(m => m.uid)]).catch(() => []));
   if (!c) return { active: 'results', title: 'غير موجودة', html: '<div class="empty">المادة غير موجودة.</div>' };
   const acad = c.program === 'academy', rel = new Set([...enr.map(e => e.termId), ...marks.map(m => m.termId)].filter(Boolean));
   const tlist = acad ? terms.filter(t => rel.has(t.id)).sort(termSort) : [];
@@ -858,19 +875,26 @@ async function adminTranscript(uid) {
 }
 /* تبويب «كشوف العلامات»: كل مادة فيها طلاب، وحالة رصد علاماتها واعتمادها */
 async function adminMarksIndex() {
-  const [courses, enr, marks, users, recs] = await Promise.all([safeList('courses'), safeList('enrollments'), safeList('marks'), safeList('users'), safeList('records')]);
-  const list = courses.filter(c => enr.some(e => e.courseId === c.id) || marks.some(m => m.courseId === c.id)).map(c => {
-    const ms = marks.filter(m => m.courseId === c.id);
-    return { c, n: enr.filter(e => e.courseId === c.id).length, saved: ms.length, pub: ms.filter(m => m.published).length, pass: ms.filter(m => m.result === 'pass').length, fail: ms.filter(m => m.result === 'fail').length };
-  }).sort((a, b) => ({ academy: 0, ijaza: 1 }[a.c.program] ?? 2) - ({ academy: 0, ijaza: 1 }[b.c.program] ?? 2) || planSort(a.c, b.c));
+  /* أعداد كل مادة بالعدّ على السيرفر (5 قراءات للمادة) بدل قراءة كل التسجيلات والعلامات */
+  const courses = await safeList('courses'), n = (c, f) => DB.count(c, f).catch(() => 0);
+  const rows = await pmap(courses, 6, async c => {
+    const [ne, saved] = await Promise.all([n('enrollments', { courseId: c.id }), n('marks', { courseId: c.id })]);
+    if (!ne && !saved) return null;
+    const [pub, pass, fail] = saved ? await Promise.all([n('marks', { courseId: c.id, published: true }), n('marks', { courseId: c.id, result: 'pass' }), n('marks', { courseId: c.id, result: 'fail' })]) : [0, 0, 0];
+    return { c, n: ne, saved, pub, pass, fail };
+  });
+  const list = rows.filter(Boolean).sort((a, b) => ({ academy: 0, ijaza: 1 }[a.c.program] ?? 2) - ({ academy: 0, ijaza: 1 }[b.c.program] ?? 2) || planSort(a.c, b.c));
   return {
     active: 'results', title: 'الامتحانات والنتائج',
     html: `${resTabs('marks')}<div class="toolbar"><label class="searchbox grow">${ic('search', 18)}<span class="sr">بحث</span><input id="sq" placeholder="كشف درجات طالب: ابحث بالاسم أو الرقم الجامعي"></label></div><div id="sres" class="rowlist" style="margin-bottom:18px"></div>
       ${list.length ? `<div class="tbl-wrap"><table><thead><tr><th>المادة</th><th>البرنامج</th><th>الطلاب</th><th>مرصودة</th><th>معتمدة</th><th>ناجح / راسب</th><th></th></tr></thead><tbody>${list.map(x => `<tr><td><a href="#/marks/${x.c.id}"><strong>${esc(x.c.title)}</strong></a><br><small class="muted">${esc(distLine(x.c))}</small></td><td>${esc(programName(x.c.program))}${termLabel(x.c.term) ? `<br><small class="muted">${esc(termLabel(x.c.term))}</small>` : ''}</td><td>${x.n}</td><td>${x.saved}</td><td>${x.pub ? `<span class="pill ok">${x.pub}</span>` : '—'}</td><td>${x.saved ? `<span style="color:var(--ok)">${x.pass}</span> / <span style="color:var(--danger)">${x.fail}</span>` : '—'}</td><td><a class="btn btn-ghost btn-sm" href="#/marks/${x.c.id}">${ic('sheet', 15)} الكشف</a></td></tr>`).join('')}</tbody></table></div>`
         : `<div class="empty">${ic('sheet', 34)}<p>لا مواد فيها طلاب بعد.</p></div>`}`,
     mount() {
-      $('#sq').oninput = e => { const q = e.target.value.trim().toLowerCase(); const l = q.length < 2 ? [] : users.filter(u => (u.name + ' ' + u.username + ' ' + recs.filter(r => r.uid === u.id).map(r => r.studentNo).join(' ')).toLowerCase().includes(q)).slice(0, 8);
-        $('#sres').innerHTML = l.map(u => `<a class="ritem" href="#/transcript/${u.id}">${ic('file', 18)}<div class="grow"><strong>${esc(u.name)}</strong><br><small dir="ltr">${esc(recs.filter(r => r.uid === u.id).map(r => r.studentNo).join(' · ') || u.username)}</small></div><small>${marks.filter(m => m.uid === u.id).length} علامة</small></a>`).join(''); };
+      /* البحث عن طالب: تُحمَّل الحسابات والقيود عند أول بحث فقط */
+      let users = null, recs = [];
+      $('#sq').oninput = async e => { const q = e.target.value.trim().toLowerCase(); if (q.length >= 2 && !users) { users = []; [users, recs] = await Promise.all([safeList('users'), safeList('records')]); }
+        const l = q.length < 2 || !users ? [] : users.filter(u => (u.name + ' ' + u.username + ' ' + recs.filter(r => r.uid === u.id).map(r => r.studentNo).join(' ')).toLowerCase().includes(q)).slice(0, 8);
+        $('#sres').innerHTML = l.map(u => `<a class="ritem" href="#/transcript/${u.id}">${ic('file', 18)}<div class="grow"><strong>${esc(u.name)}</strong><br><small dir="ltr">${esc(recs.filter(r => r.uid === u.id).map(r => r.studentNo).join(' · ') || u.username)}</small></div></a>`).join(''); };
     }
   };
 }
@@ -885,6 +909,17 @@ const trackOpts = sel => IJAZA_PLAN.map(t => `<option value="${t.key}" ${sel ===
 /* الفصل المقترح لقيد المقبول: أقرب فصل لم يبدأ بعد، وإلا الفصل الجاري */
 const intakeTerm = terms => { const l = openTerms(terms); return l.find(t => +t.startsAt > Date.now()) || l[0]; };
 const termOpts = (terms, sel) => `${openTerms(terms).map(t => `<option value="${t.id}" ${sel === t.id ? 'selected' : ''}>${esc(t.name)} — ${TERM_PH[termPhaseKey(t)][0]} (${fmtDate(t.startsAt)})</option>`).join('')}<option value="" ${sel === '' ? 'selected' : ''}>بلا فصل الآن — يُقيَّد لاحقاً من صفحة الفصل</option>`;
+/* قائمة الدفعات محفوظة في counters/students.cohorts (تبنيها recountStats وتُضاف إليها كل دفعة جديدة)، فلا تُقرأ كل القيود لاقتراحها */
+async function cohortsList() {
+  if (!S.live) return cohortList(await safeList('records'));
+  return ((await safeGet('counters', 'students'))?.cohorts || []).slice().sort((a, b) => String(b).localeCompare(String(a), 'ar'));
+}
+async function addCohort(c, known) {
+  c = String(c || '').trim(); if (!c || !S.live || known?.includes(c)) return;
+  const d = await safeGet('counters', 'students'), l = d?.cohorts || [];
+  if (!l.includes(c)) await DB.update('counters', 'students', { cohorts: [...l, c] }).catch(() => {});
+  known?.push(c);
+}
 /* الدفعات الموجودة (تُقترح في حقل الدفعة) */
 const cohortList = recs => [...new Set(recs.map(r => r.cohort).filter(Boolean))].sort((a, b) => String(b).localeCompare(String(a), 'ar'));
 const cohortField = (recs, val) => `<label>الدفعة <span class="hint">تجمع المقبولين معاً، مثل: دفعة 2026 — اختر دفعة موجودة أو اكتب جديدة</span><input name="cohort" required maxlength="40" list="cohorts" value="${esc(val)}"><datalist id="cohorts">${cohortList(recs).map(c => `<option value="${esc(c)}">`).join('')}</datalist></label>`;
@@ -898,19 +933,30 @@ async function adminAdmissions(tab = '') {
   const base = { active: 'admissions', title: 'القبول' };
   const tabs = `<div class="tabs" role="tablist">${ADM_TABS.map(([k, t, i]) => `<a class="tab ${tab === k ? 'on' : ''}" href="#/admissions${k ? '/' + k : ''}">${ic(i, 16)} ${t}</a>`).join('')}</div>`;
   if (tab === 'settings') return { ...base, ...admWindows(tabs) };
-  const [apps, recs, courses, terms] = await Promise.all([DB.list('applications'), DB.list('records'), DB.list('courses'), safeList('terms')]);
-  apps.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+  /* الطلبات تُحمَّل حسب الحالة المختارة فقط، وأعداد كل حالة بالعدّ على السيرفر — لا تُقرأ طلبات السنوات السابقة كلها في كل فتح */
+  const ALL_ST = Object.keys(APP_ST), loaded = new Set(), apps = [];
+  const [courses, terms, cnt0] = await Promise.all([DB.list('courses'), safeList('terms'), pmap(ALL_ST, 4, st => DB.count('applications', { status: st }).catch(() => 0))]);
+  const cnt = Object.fromEntries(ALL_ST.map((st, i) => [st, cnt0[i]]));
   const inF = (a, f) => { const x = APP_FILTERS.find(y => y[0] === f); return !f || (x[2] ? x[2].includes(a.status) : a.status === f); };
+  const stOf = f => { const x = APP_FILTERS.find(y => y[0] === f); return !f ? ALL_ST : x[2] || [f]; };
+  const loadF = async f => {
+    const need = stOf(f).filter(st => !loaded.has(st)); if (!need.length) return;
+    const got = (await Promise.all(need.map(st => safeList('applications', { status: st })))).flat();
+    need.forEach(st => loaded.add(st)); for (const a of got) if (!apps.some(x => x.id === a.id)) apps.push(a);
+    apps.sort((a, b) => (b.submittedAt || 0) - (a.submittedAt || 0));
+  };
+  await loadF('open');
+  const cohorts = await cohortsList();
   return {
     ...base, actions: `<button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>`,
     html: `${tabs}<div class="chips" id="sf" style="margin-bottom:12px"></div>
       <div class="toolbar"><select id="pf" style="max-width:220px">${progOpts('')}</select><label class="searchbox grow">${ic('search', 18)}<span class="sr">بحث</span><input id="q" placeholder="ابحث بالاسم أو الجوال أو اسم المستخدم"></label></div><div id="tbl"></div>`,
     mount() {
-      let f = apps.some(a => inF(a, 'open')) ? 'open' : '', q = '';
+      let f = 'open', q = '';
       const vis = () => apps.filter(a => inF(a, f) && (!$('#pf').value || a.program === $('#pf').value) && (!q || [a.name, a.nameEn, a.phone, a.username, a.email].join(' ').toLowerCase().includes(q)));
       const draw = () => {
-        setNewApps(apps.filter(a => a.status === 'submitted').length);
-        $('#sf').innerHTML = APP_FILTERS.map(([k, t]) => { const n = apps.filter(a => inF(a, k)).length; return `<button class="chip ${f === k ? 'on' : ''}" data-f="${k}">${t} <small>${n}</small></button>`; }).join('');
+        setNewApps(cnt.submitted || 0);
+        $('#sf').innerHTML = APP_FILTERS.map(([k, t]) => { const n = stOf(k).reduce((s, st) => s + (cnt[st] || 0), 0); return `<button class="chip ${f === k ? 'on' : ''}" data-f="${k}">${t} <small>${n}</small></button>`; }).join('');
         const l = vis();
         $('#tbl').innerHTML = l.length ? `<div class="tbl-wrap"><table><thead><tr><th>المتقدّم</th><th>البرنامج</th><th>العمر والمؤهل</th><th>الشروط</th><th>الحالة</th><th>التقديم</th><th></th></tr></thead><tbody>${l.map(a => {
           const x = admissionIssues(a.program, a), age = ageOf(a.birthDate);
@@ -922,20 +968,20 @@ async function adminAdmissions(tab = '') {
             <td><button class="btn btn-ghost btn-sm" data-open="${a.id}">${ic('eye', 15)} مراجعة</button></td></tr>`;
         }).join('')}</tbody></table></div>` : `<div class="empty">${ic('file', 36)}<p>${q ? 'لا نتائج مطابقة.' : f === 'open' ? 'لا طلبات بحاجة لقرار الآن.' : 'لا توجد طلبات هنا. تصل طلبات الالتحاق من صفحة «القبول» في الموقع.'}</p></div>`;
       };
-      $('#sf').onclick = e => { const b = e.target.closest('[data-f]'); if (!b) return; f = b.dataset.f; draw(); };
+      $('#sf').onclick = async e => { const b = e.target.closest('[data-f]'); if (!b) return; f = b.dataset.f; $('#tbl').innerHTML = '<p class="muted">جارٍ التحميل…</p>'; await loadF(f); draw(); };
       $('#pf').onchange = draw; $('#q').oninput = e => { q = e.target.value.trim().toLowerCase(); draw(); };
       $('#csv').onclick = () => downloadFile('applications.csv', toCSV([['الاسم', 'الاسم بالإنجليزية', 'البرنامج', 'المسار', 'الحالة', 'تاريخ الميلاد', 'العمر', 'الجنس', 'الجنسية', 'البلد', 'المدينة', 'الجوال', 'البريد', 'المؤهل', 'التخصص', 'سنة المؤهل', 'الجهة', 'العربية', 'الحفظ', 'إجازات سابقة', 'كيف عرف', 'الدافع', 'الرقم الجامعي', 'ملاحظة القرار', 'تاريخ التقديم'],
         ...vis().map(a => [a.name, a.nameEn, programName(a.program), trackName(a.track), (APP_ST[a.status] || [a.status])[0], a.birthDate, ageOf(a.birthDate), optName(GENDERS, a.gender), a.nationality, a.country, a.city, a.phone, a.email, optName(QUALS, a.qual), a.qualSpec, a.qualYear, a.qualFrom, optName(ARABIC_LV, a.arabic), a.quranAmt, a.priorIjaza, a.heard, a.motivation, a.studentNo, a.decisionNote, fmtDT(a.submittedAt)])]));
       const setSt = async (a, status, note) => {
         const now = Date.now(), v = { status, decisionNote: note, updatedAt: now, history: [...(a.history || []), { at: now, status, note }] };
         if (['accepted', 'rejected'].includes(status)) v.decidedAt = now;
-        await DB.update('applications', a.id, v); Object.assign(a, v); draw();
+        await DB.update('applications', a.id, v); if (a.status !== status) { cnt[a.status] = Math.max(0, (cnt[a.status] || 0) - 1); cnt[status] = (cnt[status] || 0) + 1; } Object.assign(a, v); draw();
       };
-      const accept = (a, note, closeView) => {
-        const p = a.program, old = recs.find(r => r.uid === a.uid && r.program === p), t0 = p === 'academy' ? intakeTerm(terms) : null;
+      const accept = async (a, note, closeView) => {
+        const p = a.program, old = await safeGet('records', `${a.uid}_${p}`), t0 = p === 'academy' ? intakeTerm(terms) : null;
         const ij = p === 'ijaza' ? courses.filter(c => c.program === 'ijaza') : [];
         modal(`قبول ${esc(a.name)}`, `<p class="muted" style="margin-top:-6px">${esc(programName(p))} — يصدر للطالب رقم جامعي ويُفتح له قيد في البرنامج.</p>
-          ${cohortField(recs, old?.cohort || S.settings.admCohort || 'دفعة ' + new Date().getFullYear())}
+          ${cohortField(cohorts.map(c => ({ cohort: c })), old?.cohort || S.settings.admCohort || 'دفعة ' + new Date().getFullYear())}
           ${p === 'academy' ? `<label>يبدأ من <span class="hint">الفصل الأول للمستجد، أو فصل لاحق لمن يُعادَل له ما سبق</span><select name="level">${levelOpts(old?.level || 1)}</select></label>
             <label>يُقيَّد في الفصل الدراسي <span class="hint">يُسجَّل فيه تلقائياً في مواد مستواه، وتُفتح دروسها ببداية الفصل. مواد الفصول التالية تبقى مقفلة حتى إنهاء فصله.</span><select name="term">${termOpts(terms, t0?.id || '')}</select></label>
             ${openTerms(terms).length ? '' : `<p class="hint">لا يوجد فصل دراسي قادم أو جارٍ. أنشئه من «القيد والفصول ← الفصول والتقويم»، ثم «قيد كل المنتظمين» من صفحته.</p>`}`
@@ -944,7 +990,7 @@ async function adminAdmissions(tab = '') {
           submitText: 'قبول وإصدار الرقم الجامعي', onSubmit: async fd => {
             const now = Date.now(), level = p === 'academy' ? +fd.get('level') || 1 : 0, track = p === 'ijaza' ? fd.get('track') : '';
             const r = { uid: a.uid, program: p, track, level, status: 'active', studentNo: old?.studentNo || await nextStudentNo(p), cohort: fd.get('cohort').trim(), name: a.name, nameEn: a.nameEn || '', username: a.username || '', admittedAt: old?.admittedAt || now, appId: a.id, updatedAt: now };
-            await DB.set('records', `${a.uid}_${p}`, r); const ri = recs.findIndex(x => x.id === `${a.uid}_${p}`); ri >= 0 ? recs.splice(ri, 1, { id: `${a.uid}_${p}`, ...r }) : recs.push({ id: `${a.uid}_${p}`, ...r });
+            await DB.set('records', `${a.uid}_${p}`, r); await addCohort(r.cohort, cohorts);
             await DB.update('applications', a.id, { studentNo: r.studentNo, cohort: r.cohort, track: track || a.track || '' });
             await setSt(a, 'accepted', fd.get('note').trim()); a.studentNo = r.studentNo;
             let extra = '';
@@ -957,7 +1003,7 @@ async function adminAdmissions(tab = '') {
       $('#tbl').onclick = async e => {
         const b = e.target.closest('[data-open]'); if (!b) return; const a = apps.find(x => x.id === b.dataset.open); if (!a) return;
         if (a.status === 'submitted') await setSt(a, 'review', a.decisionNote || '').catch(() => {});
-        const x = admissionIssues(a.program, a), rec = recs.find(r => r.uid === a.uid && r.program === a.program);
+        const x = admissionIssues(a.program, a), rec = await safeGet('records', `${a.uid}_${a.program}`);
         const row = (k, v) => v ? `<div><dt>${k}</dt><dd>${esc(v)}</dd></div>` : '';
         const close = modal(`${esc(a.name)}`, `<div class="toolbar" style="margin:-6px 0 4px">${stPill(APP_ST, a.status)}<span class="muted">${esc(programName(a.program))}${a.track ? ' — ' + esc(trackName(a.track)) : ''} · أُرسل ${fmtDT(a.submittedAt)}</span>${rec ? `<span class="pill ok" dir="ltr">${esc(rec.studentNo)}</span>` : ''}</div>
           <div class="issues">${x.hard.map(t => `<p class="bad">${ic('ban', 16)} ${esc(t)}</p>`).join('')}${x.soft.map(t => `<p>${ic('info', 16)} ${esc(t)}</p>`).join('')}${!x.hard.length && !x.soft.length ? `<p class="good">${ic('check', 16)} شروط القبول مستوفاة حسب البيانات المرسلة</p>` : ''}</div>
@@ -975,7 +1021,14 @@ async function adminAdmissions(tab = '') {
             ${['rejected', 'withdrawn'].includes(a.status) ? `<button type="button" class="btn btn-ghost btn-sm" data-d="incomplete" title="يفتح الطلب للمتقدّم ليعدّله ويعيد إرساله">السماح بإعادة التقديم</button>` : ''}
             <button type="button" class="btn btn-ghost btn-sm danger-t" data-d="delete" title="حذف الطلب نهائياً">${ic('trash', 16)}</button></div>`, { wide: true, noFoot: true });
         const bx = $('.modal-bg .modal');
-        if (a.hasFile) safeGet('appFiles', a.id).then(fl => { const el = $('#afile', bx); if (!el) return; el.innerHTML = fl?.data ? `<h4>صورة المؤهل</h4><button type="button" class="app-img" title="فتح بالحجم الكامل"><img src="${fl.data}" alt="صورة المؤهل"></button>` : '<span class="muted">تعذّر تحميل الصورة.</span>'; $('.app-img', el) && ($('.app-img', el).onclick = () => openDataUrl(fl.data)); });
+        /* صورة المؤهل: من Storage (path) أو الصيغة القديمة داخل المستند (data) — يُقبل ما كان صورة فعلاً فقط */
+        if (a.hasFile) safeGet('appFiles', a.id).then(async fl => {
+          const el = $('#afile', bx); if (!el) return;
+          let src = isImgData(fl?.data) ? fl.data : '';
+          if (!src && fl?.path && S.live) src = await (await fbStorage()).ref(fl.path).getDownloadURL().catch(() => '');
+          el.innerHTML = src ? `<h4>صورة المؤهل</h4><button type="button" class="app-img" title="فتح بالحجم الكامل"><img src="${esc(src)}" alt="صورة المؤهل"></button>` : '<span class="muted">تعذّر تحميل الصورة.</span>';
+          $('.app-img', el) && ($('.app-img', el).onclick = () => src.startsWith('data:') ? openDataUrl(src) : window.open(src, '_blank', 'noopener'));
+        });
         setTimeout(() => { document.activeElement?.blur(); bx.scrollTop = 0; bx.parentElement.scrollTop = 0; }, 80);
         bx.onclick = async ev => {
           const d = ev.target.closest('[data-d]')?.dataset.d; if (!d) return; const note = $('#dn', bx).value.trim();
@@ -1048,7 +1101,8 @@ async function promoteInto(r, t, courses, regs, known) {
 /* عند نشر مادة أكاديمية: تسجيل المقيّدين في مستواها في الفصول غير المنتهية */
 async function syncCourse(c) {
   if (c.program !== 'academy' || !c.published || !+c.term) return 0;
-  const [regs, terms] = await Promise.all([safeList('regs'), safeList('terms')]), live = new Set(openTerms(terms).map(t => t.id));
+  const terms = await safeList('terms'), live = new Set(openTerms(terms).map(t => t.id));
+  const regs = (await Promise.all([...live].map(tid => safeList('regs', { termId: tid })))).flat(); /* قيود الفصول القائمة فقط */
   let n = 0;
   for (const g of regs.filter(g => live.has(g.termId) && +g.level === +c.term)) {
     n += await enrollIn({ uid: g.uid, name: g.name }, c, null, g.termId) ? 1 : 0;
@@ -1059,15 +1113,18 @@ async function syncCourse(c) {
 async function adminRegistry(tab = '') {
   const base = { active: 'registry', title: 'القيد والفصول' };
   const tabs = `<div class="tabs" role="tablist">${REG_TABS.map(([k, t, i]) => `<a class="tab ${tab === k ? 'on' : ''}" href="#/registry${k ? '/' + k : ''}">${ic(i, 16)} ${t}</a>`).join('')}</div>`;
-  const [recs, regs, terms, courses] = await Promise.all([DB.list('records'), DB.list('regs'), DB.list('terms'), DB.list('courses')]);
+  /* لا تُقرأ القيود الفصلية كلها: عدد مقيّدي كل فصل بالعدّ، وعدد فصول كل طالب من records.nTerms (تحدّثه الدالة regStats)،
+     وفصول الطالب عند فتح تفاصيله، والحسابات عند فتح «قيد طالب يدوياً» فقط */
+  const [terms, courses] = await Promise.all([DB.list('terms'), DB.list('courses')]);
   terms.sort((a, b) => (+b.startsAt || 0) - (+a.startsAt || 0));
   if (tab === 'terms') {
+    const nReg = Object.fromEntries(await pmap(terms, 6, async t => [t.id, await DB.count('regs', { termId: t.id }).catch(() => '—')]));
     const due = terms.filter(t => termPhaseKey(t) === 'ended');
     return {
       ...base, actions: `<a class="btn btn-ghost btn-sm" href="index.html#/calendar" target="_blank">${ic('eye', 16)} التقويم في الموقع</a><button class="btn btn-primary btn-sm" id="newT">${ic('plus', 16)} فصل دراسي جديد</button>`,
       html: `${tabs}<p class="muted" style="margin-bottom:16px">الفصل الدراسي فترة زمنية يدرس فيها كل طالب منتظم مواد مستواه. حدّد بدايته ونهايته وفترة امتحاناته وأحداثه فتظهر في «التقويم الأكاديمي» بالموقع. عند انتهائه اضغط «إنهاء الفصل» ليُرفَّع طلابه ويُقيَّدوا في الفصل التالي فتُفتح لهم مواده.</p>
         ${due.map(t => `<div class="notice warn">${ic('info', 18)}<span class="grow">انتهت مدة «${esc(t.name)}» ولم يُنهَ بعد — طلابه ما زالوا في مستواهم ومواد الفصل التالي مقفلة عليهم.</span><a class="btn btn-brass btn-sm" href="#/term/${t.id}">إنهاء الفصل</a></div>`).join('')}
-        ${terms.length ? `<div class="tbl-wrap"><table><thead><tr><th>الفصل</th><th>المدة</th><th>الامتحانات</th><th>الحالة</th><th>المقيّدون</th><th></th></tr></thead><tbody>${terms.map(t => `<tr><td><a href="#/term/${t.id}"><strong>${esc(t.name)}</strong></a></td><td>${dateRange(t.startsAt, t.endsAt)}</td><td>${+t.examStart ? dateRange(t.examStart, t.examEnd) + (t.examLock ? ` <span title="الاختبار يُفتح في فترة الامتحانات فقط">${ic('lock', 13)}</span>` : '') : '<span class="muted">—</span>'}</td><td>${termPhasePill(t)}</td><td>${regs.filter(g => g.termId === t.id).length}</td><td><a class="btn btn-ghost btn-sm" href="#/term/${t.id}">${ic('edit', 15)} إدارة</a></td></tr>`).join('')}</tbody></table></div>`
+        ${terms.length ? `<div class="tbl-wrap"><table><thead><tr><th>الفصل</th><th>المدة</th><th>الامتحانات</th><th>الحالة</th><th>المقيّدون</th><th></th></tr></thead><tbody>${terms.map(t => `<tr><td><a href="#/term/${t.id}"><strong>${esc(t.name)}</strong></a></td><td>${dateRange(t.startsAt, t.endsAt)}</td><td>${+t.examStart ? dateRange(t.examStart, t.examEnd) + (t.examLock ? ` <span title="الاختبار يُفتح في فترة الامتحانات فقط">${ic('lock', 13)}</span>` : '') : '<span class="muted">—</span>'}</td><td>${termPhasePill(t)}</td><td>${nReg[t.id]}</td><td><a class="btn btn-ghost btn-sm" href="#/term/${t.id}">${ic('edit', 15)} إدارة</a></td></tr>`).join('')}</tbody></table></div>`
           : `<div class="empty">${ic('calendar', 36)}<p>لا توجد فصول دراسية بعد. أنشئ الفصل الذي تبدأ فيه الدراسة مع مواعيده، ثم يُقيَّد فيه المقبولون.</p></div>`}`,
       mount() {
         $('#newT').onclick = () => modal('فصل دراسي جديد', termForm(), {
@@ -1076,7 +1133,9 @@ async function adminRegistry(tab = '') {
       }
     };
   }
-  const users = await DB.list('users'), um = Object.fromEntries(users.map(u => [u.id, u]));
+  const recs = await DB.list('records');
+  if (!S.live) { const rg = await safeList('regs'); for (const r of recs) r.nTerms = rg.filter(g => g.uid === r.uid && g.program === r.program).length; }
+  const nT = r => r.nTerms == null ? '—' : Math.max(0, +r.nTerms || 0);
   return {
     ...base, actions: `<button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button><button class="btn btn-primary btn-sm" id="addR">${ic('plus', 16)} قيد طالب يدوياً</button>`,
     html: `${tabs}<div class="toolbar"><select id="pf" style="max-width:200px">${progOpts('')}</select><select id="lf" style="max-width:220px"><option value="">كل المستويات</option>${levelOpts(0)}${IJAZA_PLAN.map(t => `<option value="t:${t.key}">${esc(t.title)}</option>`).join('')}</select><select id="cf" style="max-width:190px"><option value="">كل الدفعات</option>${cohortList(recs).map(c => `<option>${esc(c)}</option>`).join('')}</select><select id="sf2" style="max-width:170px"><option value="">كل الحالات</option>${Object.entries(REC_ST).map(([k, [t]]) => `<option value="${k}">${t}</option>`).join('')}</select>
@@ -1091,8 +1150,8 @@ async function adminRegistry(tab = '') {
       const draw = () => {
         const l = vis();
         $('#tbl').innerHTML = l.length ? `<div class="tbl-wrap"><table><thead><tr><th><input type="checkbox" id="all" aria-label="تحديد الكل"></th><th>الرقم الجامعي</th><th>الطالب</th><th>البرنامج والمستوى</th><th>الدفعة</th><th>الفصول</th><th>الحالة</th><th></th></tr></thead><tbody>${l.map(r => `<tr>
-          <td><input type="checkbox" data-sel="${r.id}" ${sel.has(r.id) ? 'checked' : ''}></td><td dir="ltr" style="text-align:end"><b>${esc(r.studentNo || '—')}</b></td><td><strong>${esc(r.name)}</strong><br><small class="muted" dir="ltr">${esc(r.username || um[r.uid]?.username || '')}</small></td>
-          <td>${esc(programName(r.program))}<br><small class="muted">${esc(recLevel(r))}</small></td><td>${esc(r.cohort || '—')}</td><td>${regs.filter(g => g.uid === r.uid && g.program === r.program).length}</td><td>${stPill(REC_ST, r.status)}</td>
+          <td><input type="checkbox" data-sel="${r.id}" ${sel.has(r.id) ? 'checked' : ''}></td><td dir="ltr" style="text-align:end"><b>${esc(r.studentNo || '—')}</b></td><td><strong>${esc(r.name)}</strong><br><small class="muted" dir="ltr">${esc(r.username || '')}</small></td>
+          <td>${esc(programName(r.program))}<br><small class="muted">${esc(recLevel(r))}</small></td><td>${esc(r.cohort || '—')}</td><td>${nT(r)}</td><td>${stPill(REC_ST, r.status)}</td>
           <td><div class="acts"><button class="icon-btn sm" data-a="view" data-id="${r.id}" title="الفصول">${ic('eye', 16)}</button><button class="icon-btn sm" data-a="edit" data-id="${r.id}" title="تعديل القيد">${ic('edit', 16)}</button></div></td></tr>`).join('')}</tbody></table></div>`
           : `<div class="empty">${ic('users', 36)}<p>${recs.length ? 'لا سجلات مطابقة.' : 'لا يوجد طلاب مقيّدون بعد. يُقيَّد الطالب عند قبول طلبه من «القبول»، أو يدوياً من الزر أعلاه.'}</p></div>`;
         $('#all') && ($('#all').onchange = e => { l.forEach(r => e.target.checked ? sel.add(r.id) : sel.delete(r.id)); draw(); });
@@ -1100,7 +1159,7 @@ async function adminRegistry(tab = '') {
       };
       ['#pf', '#lf', '#cf', '#sf2'].forEach(s => $(s).onchange = () => { sel.clear(); draw(); });
       $('#q').oninput = e => { q = e.target.value.trim().toLowerCase(); draw(); };
-      $('#csv').onclick = () => downloadFile('records.csv', toCSV([['الرقم الجامعي', 'الاسم', 'الاسم بالإنجليزية', 'اسم المستخدم', 'البرنامج', 'المستوى / المسار', 'الدفعة', 'الحالة', 'تاريخ القبول', 'عدد الفصول'], ...vis().map(r => [r.studentNo, r.name, r.nameEn, r.username, programName(r.program), recLevel(r), r.cohort, (REC_ST[r.status] || [r.status])[0], fmtDate(r.admittedAt), regs.filter(g => g.uid === r.uid && g.program === r.program).length])]));
+      $('#csv').onclick = () => downloadFile('records.csv', toCSV([['الرقم الجامعي', 'الاسم', 'الاسم بالإنجليزية', 'اسم المستخدم', 'البرنامج', 'المستوى / المسار', 'الدفعة', 'الحالة', 'تاريخ القبول', 'عدد الفصول'], ...vis().map(r => [r.studentNo, r.name, r.nameEn, r.username, programName(r.program), recLevel(r), r.cohort, (REC_ST[r.status] || [r.status])[0], fmtDate(r.admittedAt), nT(r)])]));
       const upd = async (r, v) => { v.updatedAt = Date.now(); await DB.update('records', r.id, v); Object.assign(r, v); };
       $('#promo').onclick = async () => {
         const l = recs.filter(r => sel.has(r.id) && r.program === 'academy' && r.status === 'active');
@@ -1108,6 +1167,7 @@ async function adminRegistry(tab = '') {
         const fin = l.filter(r => +r.level >= 4).length, nt = openTerms(terms).find(t => +t.startsAt > Date.now());
         if (!(await confirmBox(`ترفيع ${l.length} طالب إلى الفصل التالي؟${fin ? `<br><small class="muted">${fin} منهم في الفصل الرابع، فتصبح حالتهم «أنهى المواد».</small>` : ''}<br><small class="muted">${nt ? `ويُقيَّدون في «${esc(nt.name)}» فتُفتح لهم مواد مستواهم الجديد.` : 'لا يوجد فصل قادم الآن؛ قيّدهم لاحقاً من صفحة الفصل. الأفضل الترفيع بزر «إنهاء الفصل» في صفحة فصلهم.'}</small>`, 'ترفيع'))) return;
         try {
+          const regs = nt ? await safeList('regs', { termId: nt.id }) : [];
           for (const r of l) { if (+r.level >= 4) await upd(r, { status: 'completed' }); else { await upd(r, { level: +r.level + 1 }); await promoteInto(r, nt, courses, regs); } }
           sel.clear(); draw(); toast(`رُفّع ${l.length} طالب`, 'ok');
         } catch (err) { toast(err.message, 'err'); }
@@ -1120,7 +1180,9 @@ async function adminRegistry(tab = '') {
       const recForm = r => `${r.program === 'academy' ? `<label>المستوى الحالي<select name="level">${levelOpts(r.level)}</select></label>` : `<label>المسار<select name="track">${trackOpts(r.track)}</select></label>`}
         <div class="row"><label>الحالة<select name="status">${Object.entries(REC_ST).map(([k, [t]]) => `<option value="${k}" ${r.status === k ? 'selected' : ''}>${t}</option>`).join('')}</select></label><label>الدفعة<input name="cohort" maxlength="40" list="cohorts" value="${esc(r.cohort)}"><datalist id="cohorts">${cohortList(recs).map(c => `<option value="${esc(c)}">`).join('')}</datalist></label></div>
         ${r.program === 'academy' ? '<p class="hint">تغيير المستوى هنا لا يغيّر تسجيلات المواد؛ للترفيع المعتاد استعمل «إنهاء الفصل».</p>' : ''}`;
-      $('#addR').onclick = () => {
+      let users = null, um = {};
+      $('#addR').onclick = async () => {
+        if (!users) { users = await safeList('users'); um = Object.fromEntries(users.map(u => [u.id, u])); }
         const free = users.filter(u => !u.disabled).sort((a, b) => String(a.name).localeCompare(String(b.name), 'ar'));
         modal('قيد طالب يدوياً', `<p class="hint" style="margin-top:-6px">لطالب له حساب ولم يمرّ بطلب التحاق (مثل الطلاب القدامى). يصدر له رقم جامعي.</p>
           <label>الطالب<select name="uid" required><option value="">اختر</option>${free.map(u => `<option value="${u.id}">${esc(u.name)} — ${esc(u.username || '')}</option>`).join('')}</select></label>
@@ -1133,7 +1195,7 @@ async function adminRegistry(tab = '') {
             const u = um[fd.get('uid')], p = fd.get('program'), id = `${u.id}_${p}`;
             if (recs.some(r => r.id === id)) throw new Error('هذا الطالب مقيّد في البرنامج من قبل');
             const r = { uid: u.id, program: p, track: p === 'ijaza' ? fd.get('track') : '', level: p === 'academy' ? +fd.get('level') : 0, status: 'active', studentNo: await nextStudentNo(p), cohort: fd.get('cohort').trim(), name: u.name, nameEn: u.nameEn || '', username: u.username || '', admittedAt: Date.now(), appId: '', updatedAt: Date.now() };
-            await DB.set('records', id, r); recs.push({ id, ...r });
+            await DB.set('records', id, r); recs.push({ id, ...r, nTerms: 0 }); await addCohort(r.cohort);
             const extra = p === 'academy' ? await placeStudent(r, terms.find(x => x.id === fd.get('term')), courses) : '';
             draw(); toast(`قُيّد ${firstName(u.name)} — ${r.studentNo}${extra}`, 'ok');
           }
@@ -1143,10 +1205,10 @@ async function adminRegistry(tab = '') {
         const cb = e.target.closest('[data-sel]'); if (cb) { cb.checked ? sel.add(cb.dataset.sel) : sel.delete(cb.dataset.sel); bulk(); return; }
         const b = e.target.closest('[data-a]'); if (!b) return; const r = recs.find(x => x.id === b.dataset.id); if (!r) return;
         if (b.dataset.a === 'edit') modal(`قيد ${esc(r.name)} — ${esc(r.studentNo)}`, recForm(r), {
-          onSubmit: async fd => { const v = { status: fd.get('status'), cohort: fd.get('cohort').trim() }; if (r.program === 'academy') v.level = +fd.get('level'); else v.track = fd.get('track'); await upd(r, v); draw(); toast('حُفظ القيد', 'ok'); }
+          onSubmit: async fd => { const v = { status: fd.get('status'), cohort: fd.get('cohort').trim() }; if (r.program === 'academy') v.level = +fd.get('level'); else v.track = fd.get('track'); await upd(r, v); await addCohort(v.cohort); draw(); toast('حُفظ القيد', 'ok'); }
         });
         if (b.dataset.a === 'view') {
-          const mine = regs.filter(g => g.uid === r.uid && g.program === r.program).sort((x, y) => y.at - x.at);
+          const mine = (await safeList('regs', { uid: r.uid })).filter(g => g.program === r.program).sort((x, y) => y.at - x.at);
           modal(esc(r.name), `<dl class="facts"><div><dt>الرقم الجامعي</dt><dd dir="ltr">${esc(r.studentNo)}</dd></div><div><dt>البرنامج</dt><dd>${esc(programName(r.program))}</dd></div><div><dt>المستوى / المسار</dt><dd>${esc(recLevel(r))}</dd></div><div><dt>الدفعة</dt><dd>${esc(r.cohort || '—')}</dd></div><div><dt>تاريخ القبول</dt><dd>${fmtDate(r.admittedAt)}</dd></div><div><dt>الحالة</dt><dd>${stPill(REC_ST, r.status)}</dd></div></dl>
             <h4 style="margin-top:16px">الفصول المسجّل فيها</h4>${mine.length ? `<div class="rowlist">${mine.map(g => `<a class="ritem" href="#/term/${g.termId}"><div class="grow"><strong>${esc(g.termName)}</strong><br><small>${esc(termLabel(g.level))} — ${nMawad((g.courseIds || []).length)}</small></div><small>${fmtDate(g.at)} · ${REG_BY[g.by] || ''}</small></a>`).join('')}</div>` : '<p class="muted">لم يُسجَّل في أي فصل بعد.</p>'}
             ${r.appId ? `<p style="margin-top:14px"><a href="#/admissions" style="color:var(--teal)">طلب الالتحاق في قسم القبول</a></p>` : ''}`, { wide: true, noFoot: true });
@@ -1157,9 +1219,14 @@ async function adminRegistry(tab = '') {
   };
 }
 async function adminTerm(id) {
-  const [t, recs, allRegs, courses, enr, terms] = await Promise.all([DB.get('terms', id), DB.list('records'), DB.list('regs'), DB.list('courses'), DB.list('enrollments'), DB.list('terms')]);
+  /* يُقرأ ما يخص هذا الفصل فقط: القيود الأكاديمية المنتظمة والمنتهية، وقيود الفصول القائمة والفصل التالي.
+     التسجيلات في المواد لا تُقرأ مسبقاً: يُتحقق من كل تسجيل عند القيد أو الإلغاء فقط (known = null) */
+  const [t, courses, terms, ra, rc] = await Promise.all([DB.get('terms', id), DB.list('courses'), DB.list('terms'),
+    safeList('records', { program: 'academy', status: 'active' }), safeList('records', { program: 'academy', status: 'completed' })]);
   if (!t) return { active: 'registry', title: 'غير موجود', html: '<div class="empty">الفصل غير موجود.</div>' };
-  const regs = allRegs.filter(g => g.termId === id), known = new Set(enr.map(x => x.id)), closed = !!t.closedAt;
+  const recs = [...ra, ...rc], liveIds = new Set([id, ...openTerms(terms).map(x => x.id), nextTermOf(terms, t)?.id].filter(Boolean));
+  const allRegs = (await Promise.all([...liveIds].map(tid => safeList('regs', { termId: tid })))).flat();
+  const regs = allRegs.filter(g => g.termId === id), known = null, closed = !!t.closedAt;
   const act = recs.filter(r => r.program === 'academy' && r.status === 'active'), live = new Set(openTerms(terms).map(x => x.id));
   /* غير المقيّدين: منتظم ليس في هذا الفصل ولا مقيّداً بمستواه الحالي في فصل آخر قائم */
   const todo = () => act.filter(r => !regs.some(g => g.uid === r.uid) && !allRegs.some(g => g.uid === r.uid && g.termId !== id && live.has(g.termId) && +g.level === +r.level));
@@ -1270,7 +1337,7 @@ async function adminTerm(id) {
         const b = e.target.closest('[data-rm]'); if (!b) return; const g = regs.find(x => x.id === b.dataset.rm);
         if (!(await confirmBox(`إلغاء قيد ${esc(g.name)} في هذا الفصل؟ تُلغى أيضاً تسجيلاته في مواد الفصل التي لم يبدأها.`, 'إلغاء القيد'))) return;
         try {
-          for (const cid of g.courseIds || []) { const en = enr.find(x => x.id === `${g.uid}_${cid}`); if (en && !(en.completed || []).length) { await DB.del('enrollments', en.id); known.delete(en.id); } }
+          for (const cid of g.courseIds || []) { const en = await safeGet('enrollments', `${g.uid}_${cid}`); if (en && !(en.completed || []).length) await DB.del('enrollments', en.id); }
           await DB.del('regs', g.id); regs.splice(regs.indexOf(g), 1); allRegs.splice(allRegs.indexOf(g), 1); draw(); toast('أُلغي القيد');
         } catch (err) { toast(err.message, 'err'); }
       };
@@ -1290,11 +1357,13 @@ async function ensureCertTypes(types) {
   try { await DB.set('certTypes', id, t); await DB.update('settings', 'main', { certDefault: id }); S.settings.certDefault = id; return [{ id, ...t }]; } catch { return []; }
 }
 async function adminCerts(tab = '') {
-  const [certs, rawTypes, courses] = await Promise.all([DB.list('certificates'), DB.list('certTypes'), DB.list('courses')]);
+  /* الشهادات الصادرة لا تُقرأ كلها: العدد بالعدّ على السيرفر، والقائمة أحدث 300 أو شهادات دورة واحدة أو رمز محدد */
+  const [rawTypes, courses, nAll] = await Promise.all([DB.list('certTypes'), DB.list('courses'), DB.count('certificates').catch(() => 0)]);
+  const RECENT_N = 300;
   const types = await ensureCertTypes(rawTypes); types.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
   const st = S.settings, defId = types.some(t => t.id === st.certDefault) ? st.certDefault : '';
   const cm = Object.fromEntries(courses.map(c => [c.id, c]));
-  const tabs = `<div class="tabs" role="tablist">${CERT_TABS.map(([k, t, i]) => `<a class="tab ${tab === k ? 'on' : ''}" href="#/certs${k ? '/' + k : ''}">${ic(i, 16)} ${t}${k === 'types' ? ` <span class="pill mut">${types.length}</span>` : k === '' ? ` <span class="pill mut">${certs.length}</span>` : ''}</a>`).join('')}</div>`;
+  const tabs = `<div class="tabs" role="tablist">${CERT_TABS.map(([k, t, i]) => `<a class="tab ${tab === k ? 'on' : ''}" href="#/certs${k ? '/' + k : ''}">${ic(i, 16)} ${t}${k === 'types' ? ` <span class="pill mut">${types.length}</span>` : k === '' ? ` <span class="pill mut">${nAll}</span>` : ''}</a>`).join('')}</div>`;
   const typeOpts = (sel, withDef = true) => `${withDef ? `<option value="">الافتراضية${defId ? ` (${esc(typeName(types, defId))})` : ''}</option>` : ''}${types.map(t => `<option value="${t.id}" ${sel === t.id ? 'selected' : ''}>${esc(t.name)}</option>`).join('')}`;
   const base = { active: 'certs', title: 'الشهادات' };
 
@@ -1345,10 +1414,11 @@ async function adminCerts(tab = '') {
   }
 
   if (tab === 'courses') {
+    const nBy = Object.fromEntries(await pmap(courses, 6, async c => [c.id, await DB.count('certificates', { courseId: c.id }).catch(() => '—')]));
     return {
       ...base,
       html: `${tabs}<p class="muted" style="margin-bottom:16px">لكل دورة شهادتها: اختر نوع الشهادة لكل دورة، ويُحفظ الاختيار فوراً ويُطبَّق على شهاداتها الجديدة والصادرة. الدورة التي تُترك على «الافتراضية» تأخذ النوع الافتراضي.</p>
-        ${courses.length ? `<div class="tbl-wrap"><table><thead><tr><th>الدورة</th><th>الشهادات الصادرة</th><th style="min-width:240px">نوع الشهادة</th><th></th></tr></thead><tbody>${courses.map(c => `<tr><td><strong>${esc(c.title)}</strong>${c.titleEn ? '' : '<br><small style="color:var(--warn)">بلا عنوان إنجليزي</small>'}</td><td>${certs.filter(x => x.courseId === c.id).length}</td>
+        ${courses.length ? `<div class="tbl-wrap"><table><thead><tr><th>الدورة</th><th>الشهادات الصادرة</th><th style="min-width:240px">نوع الشهادة</th><th></th></tr></thead><tbody>${courses.map(c => `<tr><td><strong>${esc(c.title)}</strong>${c.titleEn ? '' : '<br><small style="color:var(--warn)">بلا عنوان إنجليزي</small>'}</td><td>${nBy[c.id]}</td>
           <td><select data-ct="${c.id}">${typeOpts(c.certType || '')}</select></td><td><div class="acts"><button class="icon-btn sm" data-pv="${c.id}" title="معاينة">${ic('eye', 16)}</button><a class="icon-btn sm" href="#/certtype/${c.certType || defId}" title="تعديل النوع">${ic('edit', 16)}</a></div></td></tr>`).join('')}</tbody></table></div>`
           : `<div class="empty">${ic('book', 36)}<p>لا توجد دورات بعد.</p></div>`}`,
       mount() {
@@ -1383,28 +1453,32 @@ async function adminCerts(tab = '') {
     };
   }
 
-  certs.sort((a, b) => b.issuedAt - a.issuedAt);
+  const recent = await DB.recent('certificates', 'issuedAt', RECENT_N).catch(() => []), byCo = {};
+  let certs = recent;
   const tOf = c => typeName(types, cm[c.courseId]?.certType || c.certType || defId) || '—';
   return {
     ...base, actions: `<button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>`,
-    html: `${tabs}${certs.length ? `<div class="toolbar"><select id="fco" style="max-width:320px"><option value="">كل الدورات</option>${courses.map(c => `<option value="${c.id}">${esc(c.title)}</option>`).join('')}</select><label class="searchbox grow">${ic('search', 18)}<span class="sr">بحث</span><input id="q" placeholder="ابحث بالاسم أو الرمز"></label></div><div id="tbl"></div>`
+    html: `${tabs}${nAll || certs.length ? `<div class="toolbar"><select id="fco" style="max-width:320px"><option value="">${nAll > RECENT_N ? `أحدث ${RECENT_N} شهادة` : 'كل الدورات'}</option>${courses.map(c => `<option value="${c.id}">${esc(c.title)}</option>`).join('')}</select><label class="searchbox grow">${ic('search', 18)}<span class="sr">بحث</span><input id="q" placeholder="ابحث بالاسم، أو اكتب رمز الشهادة كاملاً"></label></div><div id="tbl"></div>`
       : `<div class="empty">${ic('award', 36)}<p>تصدر الشهادات تلقائياً عند اجتياز الطلاب لاختبارات الدورات، أو تُصدرها من «نتائج الاختبارات». شكلها من «أنواع الشهادات».</p></div>`}`,
     mount() {
-      if (!certs.length) return;
+      if (!$('#tbl')) return;
       let q = '';
       const list = () => certs.filter(c => (!$('#fco').value || c.courseId === $('#fco').value) && (!q || (c.name + c.id + (c.nameEn || '')).toLowerCase().includes(q)));
+      /* دورة محددة: كل شهاداتها. رمز كامل غير موجود في القائمة: يُجلب برمزه */
+      const reload = async () => { const co = $('#fco').value; certs = co ? (byCo[co] = byCo[co] || (await safeList('certificates', { courseId: co })).sort((a, b) => b.issuedAt - a.issuedAt)) : recent; };
+      const byCode = async () => { const m = q.toUpperCase().match(/^BYN-[A-Z0-9]{4}-[A-Z0-9]{4}$/); if (m && !certs.some(c => c.id === m[0])) { const c = await safeGet('certificates', m[0]); if (c) certs = [c, ...certs]; } };
       const draw = () => {
         const l = list();
         $('#tbl').innerHTML = l.length ? `<div class="tbl-wrap"><table><thead><tr><th>رمز التحقق</th><th>الطالب</th><th>الدورة</th><th>النوع</th><th>الدرجة</th><th>تاريخ الإصدار</th><th></th></tr></thead><tbody>${l.map(c => `<tr><td dir="ltr" style="text-align:end"><code>${esc(c.id)}</code></td><td>${esc(c.name)}</td><td>${esc(c.courseTitle)}</td><td><small>${esc(tOf(c))}</small></td><td>${c.score != null ? c.score + '%' : '—'}</td><td>${fmtDate(c.issuedAt)}</td><td><div class="acts"><a class="icon-btn sm" href="index.html#/cert/${c.id}" target="_blank" title="عرض">${ic('eye', 16)}</a><button class="icon-btn sm" data-ed="${c.id}" title="تعديل الأسماء">${ic('edit', 16)}</button><button class="icon-btn sm danger" data-del="${c.id}" title="إلغاء الشهادة">${ic('trash', 16)}</button></div></td></tr>`).join('')}</tbody></table></div>`
           : `<div class="empty">${ic('search', 32)}<p>لا شهادات مطابقة.</p></div>`;
       };
-      $('#fco').onchange = draw; $('#q').oninput = e => { q = e.target.value.trim().toLowerCase(); draw(); };
+      $('#fco').onchange = async () => { await reload(); draw(); }; $('#q').oninput = async e => { q = e.target.value.trim().toLowerCase(); await byCode(); draw(); };
       $('#csv').onclick = () => downloadFile('certificates.csv', toCSV([['الرمز', 'الطالب', 'الدورة', 'النوع', 'الدرجة', 'التاريخ'], ...list().map(c => [c.id, c.name, c.courseTitle, tOf(c), c.score ?? '', fmtDate(c.issuedAt)])]));
       $('#tbl').onclick = async e => {
         const ed = e.target.closest('[data-ed]');
         if (ed) { const c = certs.find(x => x.id === ed.dataset.ed); modal('بيانات الشهادة', `<label>اسم الطالب<input name="name" required value="${esc(c.name)}"></label><label>الاسم بالإنجليزية<input name="nameEn" dir="ltr" value="${esc(c.nameEn)}"></label><label>عنوان الدورة بالإنجليزية<input name="courseTitleEn" dir="ltr" value="${esc(c.courseTitleEn)}"></label><label>اسم المحاضر بالإنجليزية<input name="instructorEn" dir="ltr" value="${esc(c.instructorEn)}"></label>`, { onSubmit: async fd => { const v = { name: fd.get('name').trim(), nameEn: fd.get('nameEn').trim(), courseTitleEn: fd.get('courseTitleEn').trim(), instructorEn: fd.get('instructorEn').trim() }; await DB.update('certificates', c.id, v); Object.assign(c, v); draw(); toast('حُفظت بيانات الشهادة', 'ok'); } }); return; }
         const b = e.target.closest('[data-del]'); if (!b) return;
-        if (await confirmBox(`إلغاء الشهادة ${esc(b.dataset.del)}؟ لن يعود رمزها صالحاً للتحقق.`, 'إلغاء الشهادة')) { await DB.del('certificates', b.dataset.del); certs.splice(certs.findIndex(x => x.id === b.dataset.del), 1); draw(); toast('أُلغيت الشهادة'); }
+        if (await confirmBox(`إلغاء الشهادة ${esc(b.dataset.del)}؟ لن يعود رمزها صالحاً للتحقق.`, 'إلغاء الشهادة')) { await DB.del('certificates', b.dataset.del); for (const l of [recent, certs, ...Object.values(byCo)]) { const i = l.findIndex(x => x.id === b.dataset.del); if (i >= 0) l.splice(i, 1); } draw(); toast('أُلغيت الشهادة'); }
       };
       draw();
     }
@@ -1603,7 +1677,7 @@ async function adminCertType(id) {
 const MSG_ST = { new: ['جديدة', 'no'], read: ['مقروءة', 'mut'], done: ['تمّ الرد', 'ok'] };
 const setUnread = n => { S.unread = n; const b = $('#unread'); if (b) { b.textContent = n; b.hidden = !n; } };
 async function adminMessages() {
-  const msgs = (await DB.list('messages')).sort((a, b) => b.at - a.at);
+  const msgs = await DB.recent('messages', 'at', 1000);
   return {
     active: 'messages', title: 'الرسائل', actions: `<button class="btn btn-ghost btn-sm" id="csv">${ic('download', 16)} تصدير</button>`,
     html: `<div class="toolbar"><div class="seg" id="mf"><button type="button" data-f="new" class="on">الجديدة</button><button type="button" data-f="open">بانتظار الرد</button><button type="button" data-f="">الكل</button></div>
@@ -1653,6 +1727,17 @@ service cloud.firestore {
     function own(d) { return signedIn() && d.uid == request.auth.uid; }
     // قراءة مستند الطالب نفسه (resource == null يسمح بالسؤال عن مستند غير موجود)
     function ownRead() { return isAdmin() || resource == null || own(resource.data); }
+    // الحساب الموقوف (users.disabled) لا يكتب شيئاً. الدالة syncUserAuth توقفه في Firebase Auth أيضاً فلا يستطيع الدخول
+    function userPath() { return /databases/$(db)/documents/users/$(request.auth.uid); }
+    function notBlocked() { return signedIn() && (!exists(userPath()) || get(userPath()).data.get('disabled', false) != true); }
+    // المقبول في أي برنامج: اسمه الرسمي يُقفل (تعدّله الإدارة فقط)
+    function admitted() {
+      return exists(/databases/$(db)/documents/records/$(request.auth.uid + '_academy'))
+        || exists(/databases/$(db)/documents/records/$(request.auth.uid + '_ijaza'));
+    }
+    // حد طول النص: الحقل غائب، أو null / رقم / منطقي، أو نص لا يتجاوز n حرفاً
+    function okLen(d, k, n) { return !(k in d) || d[k] == null || d[k] is bool || d[k] is number || (d[k] is string && d[k].size() <= n); }
+    function changed(keys) { return request.resource.data.diff(resource.data).affectedKeys().hasAny(keys); }
     // نافذة زمنية بصيغة الدورة: enrollMode (open | window | closed) و enrollStart و enrollEnd
     function inWindow(w, def) {
       let m = w.get('enrollMode', def);
@@ -1664,12 +1749,20 @@ service cloud.firestore {
 
     match /settings/{id}     { allow read: if true; allow write: if isAdmin(); }
     match /courses/{id}      { allow read: if true; allow write: if isAdmin(); }
+    // إحصاءات عامة (عدد الشهادات): تحدّثها الدوال، ويقرؤها الجميع بدل قراءة كل الشهادات
+    match /stats/{id}        { allow read: if true; allow write: if isAdmin(); }
+
+    // الشهادات: التحقق برمز الشهادة متاح للجميع (get)، أما سرد الشهادات فلصاحبها وللمشرف فقط.
+    // لا ينشئها المتصفح أبداً: يُصدرها السيرفر (الدالة issueCert بعد التحقق من التسجيل والنجاح) أو المشرف.
+    // صاحبها يضيف اسمه الإنجليزي مرة واحدة إن كان فارغاً.
     match /certificates/{id} {
-      // الطالب يُصدر شهادته بنفسه فقط في الدورات التي ليس لها امتحانات رسمية (offExams)؛ وإلا يُصدرها المشرف بعد اعتماد النتائج
-      allow read: if true; allow delete: if isAdmin();
-      allow create: if isAdmin() || (own(request.resource.data)
-        && get(/databases/$(db)/documents/courses/$(request.resource.data.courseId)).data.get('offExams', 0) == 0);
-      allow update: if isAdmin() || (own(resource.data) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nameEn']));
+      allow get: if true;
+      allow list: if isAdmin() || (signedIn() && resource.data.uid == request.auth.uid);
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (own(resource.data) && notBlocked()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nameEn'])
+        && resource.data.get('nameEn', '') == '' && request.resource.data.nameEn is string
+        && request.resource.data.nameEn.size() >= 3 && request.resource.data.nameEn.size() <= 120);
     }
     // أنواع الشهادات وتصاميمها المرفوعة: يقرؤها الجميع لعرض الشهادة، ويعدّلها المشرف
     match /certTypes/{id}    { allow read: if true; allow write: if isAdmin(); }
@@ -1680,34 +1773,54 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
     match /admins/{uid}      { allow read: if signedIn() && request.auth.uid == uid; allow write: if false; }
+
+    // حساب الطالب: لا يغيّر الإيقاف ولا اسم المستخدم، ولا اسمه بعد قبوله في برنامج
+    function userOk(d) { return okLen(d, 'name', 120) && okLen(d, 'nameEn', 120) && okLen(d, 'username', 60) && okLen(d, 'phone', 40); }
     match /users/{uid} {
       allow read: if isAdmin() || (signedIn() && request.auth.uid == uid);
-      allow create: if isAdmin() || (signedIn() && request.auth.uid == uid && request.resource.data.disabled == false);
-      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['disabled','username']));
+      allow create: if isAdmin() || (signedIn() && request.auth.uid == uid && request.resource.data.disabled == false
+        && request.resource.data.keys().hasOnly(['name','nameEn','username','phone','createdAt','disabled']) && userOk(request.resource.data));
+      allow update: if isAdmin() || (signedIn() && request.auth.uid == uid && notBlocked()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name','nameEn','phone'])
+        && userOk(request.resource.data)
+        && (!changed(['name']) || !admitted())
+        && (!changed(['nameEn']) || !admitted() || resource.data.get('nameEn', '') == ''));
       allow delete: if isAdmin();
     }
 
     // ===== القبول والقيد =====
     // طلب الالتحاق {uid}_{program}: الطالب يرسله خلال فترة القبول، ويعدّله أو يسحبه قبل القرار، ويستكمله إذا طُلب منه. القرار للمشرف.
     function appKeys() { return ['uid','program','track','userName','username','name','nameEn','birthDate','gender','nationality','country','city','phone','email','qual','qualSpec','qualYear','qualFrom','arabic','quranAmt','priorIjaza','motivation','heard','pledge','hasFile','status','submittedAt','updatedAt']; }
+    function appOk(d) {
+      return okLen(d, 'name', 120) && okLen(d, 'nameEn', 120) && okLen(d, 'userName', 120) && okLen(d, 'username', 60)
+        && okLen(d, 'nationality', 80) && okLen(d, 'country', 80) && okLen(d, 'city', 80) && okLen(d, 'phone', 40) && okLen(d, 'email', 120)
+        && okLen(d, 'qualSpec', 150) && okLen(d, 'qualFrom', 150) && okLen(d, 'quranAmt', 300) && okLen(d, 'priorIjaza', 300)
+        && okLen(d, 'motivation', 4000) && okLen(d, 'heard', 200) && okLen(d, 'track', 40) && okLen(d, 'qual', 40)
+        && okLen(d, 'arabic', 40) && okLen(d, 'gender', 10) && okLen(d, 'birthDate', 20) && okLen(d, 'qualYear', 10);
+    }
     function admOpen(p) { return inWindow(get(/databases/$(db)/documents/settings/main).data.get('adm', {}).get(p, {}), 'open'); }
     match /applications/{id} {
       allow read: if ownRead();
-      allow create: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.program
+      allow create: if isAdmin() || (own(request.resource.data) && notBlocked() && id == request.auth.uid + '_' + request.resource.data.program
         && request.resource.data.program in ['academy', 'ijaza'] && request.resource.data.status == 'submitted'
-        && request.resource.data.keys().hasOnly(appKeys()) && admOpen(request.resource.data.program));
-      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data)
+        && request.resource.data.keys().hasOnly(appKeys()) && appOk(request.resource.data) && admOpen(request.resource.data.program));
+      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data) && notBlocked()
         && request.resource.data.program == resource.data.program
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(appKeys())
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(appKeys()) && appOk(request.resource.data)
         && ((resource.data.status in ['submitted', 'incomplete'] && request.resource.data.status in ['submitted', 'withdrawn'])
           || (resource.data.status == 'withdrawn' && request.resource.data.status == 'submitted' && admOpen(resource.data.program))));
       allow delete: if isAdmin();
     }
-    // صورة المؤهل المرفقة بالطلب (JPEG مضغوطة بصيغة dataURL)
+    // صورة المؤهل: الملف نفسه في Storage (apps/{uid}/{program}.jpg) وهنا مساره فقط.
+    // data = الصيغة القديمة (صورة داخل المستند) — تبقى مقروءة للطلبات السابقة
     match /appFiles/{id} {
       allow read: if ownRead();
-      allow create, update: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.program
-        && request.resource.data.keys().hasOnly(['uid','program','data','name','at']) && request.resource.data.data is string && request.resource.data.data.size() < 1000000);
+      allow create, update: if isAdmin() || (own(request.resource.data) && notBlocked() && id == request.auth.uid + '_' + request.resource.data.program
+        && request.resource.data.program in ['academy', 'ijaza']
+        && request.resource.data.keys().hasOnly(['uid','program','data','path','name','at'])
+        && (!('data' in request.resource.data) || (request.resource.data.data is string && request.resource.data.data.size() < 1000000))
+        && (!('path' in request.resource.data) || request.resource.data.path == 'apps/' + request.auth.uid + '/' + request.resource.data.program + '.jpg')
+        && okLen(request.resource.data, 'name', 120));
       allow delete: if isAdmin();
     }
     // القيد في البرنامج بعد القبول (الرقم الجامعي، المستوى، المسار، الحالة): يكتبه المشرف فقط
@@ -1729,19 +1842,26 @@ service cloud.firestore {
     }
     match /enrollments/{id} {
       allow read: if isAdmin() || resource == null || own(resource.data);
-      allow create: if isAdmin() || (own(request.resource.data) && id == request.auth.uid + '_' + request.resource.data.courseId && enrollOpen(request.resource.data.courseId));
-      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data) && request.resource.data.courseId == resource.data.courseId
-        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['termId', 'by']));
+      // التسجيل الذاتي لا يحدد الفصل ولا مصدر التسجيل (termId / by / repeat للإدارة فقط)
+      allow create: if isAdmin() || (own(request.resource.data) && notBlocked() && id == request.auth.uid + '_' + request.resource.data.courseId
+        && request.resource.data.keys().hasOnly(['uid','courseId','userName','courseTitle','completed','enrolledAt','lastLesson','lastAt'])
+        && okLen(request.resource.data, 'userName', 120) && okLen(request.resource.data, 'courseTitle', 200)
+        && enrollOpen(request.resource.data.courseId));
+      // الطالب يحدّث تقدّمه في الدروس فقط
+      allow update: if isAdmin() || (own(resource.data) && own(request.resource.data) && notBlocked()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['completed','lastLesson','lastAt'])
+        && request.resource.data.completed is list && request.resource.data.completed.size() <= 500);
       allow delete: if isAdmin();
     }
-    // رسائل «تواصل معنا»: يرسلها أي زائر، ويقرؤها المشرف فقط
+    // رسائل «تواصل معنا»: يرسلها أي زائر بحدود طول، ويقرؤها المشرف فقط (الحماية من الإغراق: App Check)
     match /messages/{id} {
       allow create: if request.resource.data.keys().hasOnly(['name','reply','topic','body','at','uid','status'])
         && request.resource.data.name is string && request.resource.data.name.size() >= 2 && request.resource.data.name.size() <= 80
         && request.resource.data.reply is string && request.resource.data.reply.size() >= 5 && request.resource.data.reply.size() <= 120
         && request.resource.data.body is string && request.resource.data.body.size() >= 5 && request.resource.data.body.size() <= 3000
+        && okLen(request.resource.data, 'topic', 80) && request.resource.data.at is number
         && request.resource.data.status == 'new'
-        && (request.resource.data.uid == '' || (signedIn() && request.resource.data.uid == request.auth.uid));
+        && (request.resource.data.uid == '' || (request.resource.data.uid == request.auth.uid && notBlocked()));
       allow read, update, delete: if isAdmin();
     }
 
@@ -1769,7 +1889,7 @@ service cloud.firestore {
     match /sittings/{id} {
       allow read: if ownRead();
       allow create, delete: if isAdmin();
-      allow update: if isAdmin() || (own(resource.data) && resource.data.status == 'started' && sitUpdate(resource.data, request.resource.data));
+      allow update: if isAdmin() || (own(resource.data) && notBlocked() && resource.data.status == 'started' && sitUpdate(resource.data, request.resource.data));
     }
     match /grades/{id} {
       allow read: if isAdmin() || resource == null || (own(resource.data) && examOf(resource.data.examId).get('resultsOut', false) == true);
@@ -1784,10 +1904,15 @@ service cloud.firestore {
     // الأسئلة الشائعة: يقرؤها الجميع، ويكتبها المشرف
     match /faqs/{id} { allow read: if true; allow write: if isAdmin(); }
 
-    // محاولات «الاختبار الذاتي» (تدريبي، يُصحَّح في المتصفح)
+    // محاولات «الاختبار الذاتي» (تدريبي): للمسجّل في الدورة فقط وبحقول محددة.
+    // الدرجة هنا للعرض فقط — الشهادة يُصدرها السيرفر بعد إعادة التصحيح من الإجابات
     match /attempts/{id} {
       allow read: if isAdmin() || own(resource.data);
-      allow create: if own(request.resource.data);
+      allow create: if isAdmin() || (own(request.resource.data) && notBlocked()
+        && request.resource.data.keys().hasOnly(['uid','userName','courseId','courseTitle','score','correct','total','passed','at','answers'])
+        && request.resource.data.answers is map && request.resource.data.answers.size() <= 300
+        && okLen(request.resource.data, 'userName', 120) && okLen(request.resource.data, 'courseTitle', 200)
+        && exists(/databases/$(db)/documents/enrollments/$(request.auth.uid + '_' + request.resource.data.courseId)));
       allow update, delete: if isAdmin();
     }
   }
@@ -1850,7 +1975,9 @@ async function adminSettings() {
           <li><b>الامتحانات الرسمية</b> تحتاج Cloud Functions (خطة Blaze). تُنشر تلقائياً من GitHub (ملف <code>.github/workflows/deploy-firebase.yml</code> مع سرّ <code>FIREBASE_SERVICE_ACCOUNT</code> في المستودع)، أو يدوياً: ثبّت Node.js، ثم في مجلد المشروع: <code>npm i -g firebase-tools</code> ← <code>firebase login</code> ← <code>cd functions &amp;&amp; npm install &amp;&amp; cd ..</code> ← <code>firebase deploy --only functions,firestore:rules</code>. اجعل المنطقة في <code>functions/index.js</code> و<code>js/config.js</code> مطابقة لموقع Firestore. بدونها لا يستطيع الطلاب بدء الامتحانات الرسمية.</li>
         </ol>
         <div class="toolbar" style="margin:16px 0 8px"><strong class="grow">قواعد Firestore</strong><button class="btn btn-ghost btn-sm" id="cpr">${ic('link', 16)} نسخ القواعد</button></div>
-        <pre class="code">${esc(RULES)}</pre></div>`,
+        <pre class="code">${esc(RULES)}</pre>
+        ${S.live ? `<div class="toolbar" style="margin:20px 0 6px"><strong class="grow">الإحصاءات والفهرس</strong><button class="btn btn-ghost btn-sm" id="recount">${ic('chart', 16)} إعادة احتساب</button></div>
+        <p class="hint">يعيد بناء فهرس الدورات للصفحات العامة وعدد الشهادات، وعدد دورات كل طالب وشهاداته في قسم «الطلاب». شغّله مرة بعد نشر هذا التحديث، أو إن بدت الأرقام غير دقيقة. يقرأ كل التسجيلات والشهادات مرة واحدة.</p>` : ''}</div>`,
     mount() {
       $('#fs').onsubmit = async e => {
         e.preventDefault(); const fd = new FormData(e.target);
@@ -1908,6 +2035,11 @@ async function adminSettings() {
         const f = e.target.files[0]; if (!f) return;
         try { const data = JSON.parse(await f.text()); if (!data.courses) throw new Error('الملف ليس نسخة احتياطية من بيان'); if (!(await confirmBox('ستُستبدل كل البيانات الحالية بمحتوى النسخة. متابعة؟', 'استعادة'))) return; Local.save(data); toast('استُعيدت النسخة', 'ok'); setTimeout(() => location.reload(), 600); }
         catch (err) { toast(err.message, 'err'); }
+      });
+      $('#recount') && ($('#recount').onclick = async e => {
+        const b = e.currentTarget; b.disabled = true; b.textContent = 'جارٍ الاحتساب…';
+        try { const r = await (await fbFunctions()).httpsCallable('recountStats')({}); toast(`تم — ${r.data.users} طالب، ${r.data.certs} شهادة، ${r.data.courses} دورة في الفهرس`, 'ok'); DB.drop?.('stats'); }
+        catch (err) { toast(err.message, 'err'); } finally { b.disabled = false; b.textContent = 'إعادة احتساب'; }
       });
       $('#cpr').onclick = async () => { try { await navigator.clipboard.writeText(RULES); toast('نُسخت القواعد', 'ok'); } catch { toast('انسخ القواعد يدوياً من المربع', 'err'); } };
     }
@@ -1967,9 +2099,13 @@ async function adminLoginView() {
     }
   };
 }
+/* شارات الشريط الجانبي (رسائل جديدة، طلبات جديدة): عدّ على السيرفر، ويُحدَّث مرة كل دقيقة لا عند كل انتقال */
+let badgeAt = 0;
 const wrapA = f => async (...a) => {
-  const [v, nw, na] = await Promise.all([f(...a), safeList('messages', { status: 'new' }), safeList('applications', { status: 'submitted' })]);
-  S.unread = nw.length; S.newApps = na.length; return { layout: 'admin', ...v };
+  const fresh = Date.now() - badgeAt > 60e3;
+  const [v, nw, na] = await Promise.all([f(...a), fresh ? DB.count('messages', { status: 'new' }).catch(() => S.unread || 0) : S.unread, fresh ? DB.count('applications', { status: 'submitted' }).catch(() => S.newApps || 0) : S.newApps]);
+  if (fresh) badgeAt = Date.now();
+  S.unread = nw || 0; S.newApps = na || 0; return { layout: 'admin', ...v };
 };
 
 /* ================= تعريف التطبيق ================= */

@@ -25,3 +25,6 @@ const EMAIL_DOMAIN = 'bayan-students.app'; // يُضاف لاسم المستخد
 // منطقة Cloud Functions (بدء الامتحانات وتصحيحها على السيرفر) — يجب أن تطابق REGION في functions/index.js
 // وأن تطابق موقع قاعدة Firestore: nam5 ← us-central1 · eur3 ← europe-west1 · منطقة مفردة (مثل me-central1) ← نفس الاسم
 const FUNCTIONS_REGION = 'us-central1';
+// App Check (حماية من السكربتات والإغراق): أنشئ مفتاح reCAPTCHA v3 للدومين، وسجّله في Firebase ← App Check ← Apps،
+// ثم ضع «مفتاح الموقع» (site key) هنا. فارغ = غير مفعّل. التفاصيل في PROJECT.md ← «الأمان»
+const APPCHECK_SITE_KEY = '';
